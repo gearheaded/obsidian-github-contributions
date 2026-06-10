@@ -53,6 +53,7 @@ interface GitHubContributionsSettings {
   sizePreset: SizePreset;
   defaultView: ViewMode;
   palette: Palette;
+  statsStyle: StatsStyle;
   // Daily notes
   dailyNoteFolder: string;
   dailyNoteDateFormat: string;
@@ -68,6 +69,7 @@ const DEFAULT_SETTINGS: GitHubContributionsSettings = {
   sizePreset: "medium",
   defaultView: "year",
   palette: "default",
+  statsStyle: "default",
   dailyNoteFolder: "",
   dailyNoteDateFormat: "YYYY-MM-DD",
 };
@@ -83,6 +85,7 @@ const PRESET_SIZES: Record<SizePreset, { cell: number; gap: number }> = {
 
 // ── Palettes ─────────────────────────────────────────────────────────────────
 type Palette = "default" | "high-contrast" | "colorblind" | "neon";
+type StatsStyle = "compact" | "default" | "grid";
 
 interface PaletteColors {
   dark:  [string, string, string, string, string]; // levels 0-4
@@ -518,24 +521,58 @@ export class ContributionsView extends ItemView {
     sinceCommit: number | null; recentRepo: string | null;
   }) {
     const s = this.plugin.settings;
-    const stats = container.createDiv({ cls: "gh-stats" });
-
+    const style = s.statsStyle ?? "default";
     const total = info.totalGH + info.totalLocal;
-    this.pill(stats, String(total), "contributions");
-    this.pill(stats, info.streaks.current + "d", "streak");
-    this.pill(stats, info.streaks.longest + "d", "best");
+    const showLocal = s.dataSource === "local" || s.dataSource === "both";
 
-    if ((s.dataSource === "local" || s.dataSource === "both") && info.sinceCommit !== null) {
-      this.pill(stats, String(info.sinceCommit) + "d", "since commit");
-    }
-
-    if (info.recentRepo) {
-      const maxLen = 16;
-      const name = info.recentRepo.length > maxLen ? info.recentRepo.slice(0, maxLen - 1) + "\u2026" : info.recentRepo;
-      const pill = stats.createDiv({ cls: "gh-stat gh-stat--wide" });
-      pill.title = info.recentRepo;
-      pill.createEl("span", { cls: "gh-stat-val", text: name });
-      pill.createEl("span", { cls: "gh-stat-lbl", text: "recent repo" });
+    if (style === "compact") {
+      // Single row, icon + number, no labels
+      const row = container.createDiv({ cls: "gh-stats-compact" });
+      const items: [string, string, string][] = [
+        ["↑", String(total), "Total contributions"],
+        ["🔥", info.streaks.current + "d", "Current streak"],
+        ["⭐", info.streaks.longest + "d", "Best streak"],
+      ];
+      if (showLocal && info.sinceCommit !== null)
+        items.push(["⏱", info.sinceCommit + "d", "Days since last commit"]);
+      if (info.recentRepo)
+        items.push(["📁", info.recentRepo.length > 10 ? info.recentRepo.slice(0,9) + "\u2026" : info.recentRepo, info.recentRepo]);
+      for (const [icon, val, title] of items) {
+        const chip = row.createEl("span", { cls: "gh-chip", title });
+        chip.createEl("span", { cls: "gh-chip-icon", text: icon });
+        chip.createEl("span", { cls: "gh-chip-val", text: val });
+      }
+    } else if (style === "grid") {
+      const stats = container.createDiv({ cls: "gh-stats gh-stats--grid" });
+      this.pill(stats, String(total), "contributions");
+      this.pill(stats, info.streaks.current + "d", "streak");
+      this.pill(stats, info.streaks.longest + "d", "best");
+      if (showLocal && info.sinceCommit !== null)
+        this.pill(stats, info.sinceCommit + "d", "since commit");
+      if (info.recentRepo) {
+        const maxLen = 16;
+        const name = info.recentRepo.length > maxLen ? info.recentRepo.slice(0, maxLen-1) + "\u2026" : info.recentRepo;
+        const pill = stats.createDiv({ cls: "gh-stat gh-stat--wide" });
+        pill.title = info.recentRepo;
+        pill.createEl("span", { cls: "gh-stat-val", text: name });
+        pill.createEl("span", { cls: "gh-stat-lbl", text: "recent repo" });
+      }
+    } else {
+      // Default: flex row, wraps
+      const stats = container.createDiv({ cls: "gh-stats" });
+      this.pill(stats, String(total), "contributions");
+      this.pill(stats, info.streaks.current + "d", "streak");
+      this.pill(stats, info.streaks.longest + "d", "best");
+      if (showLocal && info.sinceCommit !== null)
+        this.pill(stats, info.sinceCommit + "d", "since commit");
+      if (info.recentRepo) {
+        const maxLen = 16;
+        const name = info.recentRepo.length > maxLen ? info.recentRepo.slice(0, maxLen-1) + "\u2026" : info.recentRepo;
+        const pill = stats.createDiv({ cls: "gh-stat" });
+        pill.title = info.recentRepo;
+        pill.createEl("span", { cls: "gh-stat-val", text: name });
+        pill.createEl("span", { cls: "gh-stat-lbl", text: "recent repo" });
+      }
     }
   }
 
@@ -796,6 +833,17 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
         .onChange(async v => { this.plugin.settings.sidebarSide = v as "left"|"right"; await this.plugin.saveSettings(); }));
 
     new Setting(containerEl)
+      .setName("Stats display")
+      .setDesc("How the stats bar is shown")
+      .addDropdown(d => d
+        .addOption("default", "Default (pills with labels)")
+        .addOption("compact", "Compact (icons + numbers)")
+        .addOption("grid",    "Grid (2-column)")
+        .setValue(this.plugin.settings.statsStyle)
+        .onChange(async v => { this.plugin.settings.statsStyle = v as StatsStyle; await this.plugin.saveSettings(); })
+      );
+
+    new Setting(containerEl)
       .setName("Colour palette")
       .setDesc("Colour scheme for contribution cells")
       .addDropdown(d => d
@@ -923,11 +971,17 @@ body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2
 .gh-nav-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:14px;line-height:1;padding:1px 6px;transition:background .15s}
 .gh-nav-btn:hover:not(:disabled){background:var(--background-modifier-hover);color:var(--text-normal)}
 .gh-nav-btn:disabled{opacity:.3;cursor:default}
-.gh-stats{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:10px}
-.gh-stat{display:flex;flex-direction:column;align-items:center;background:var(--background-secondary);border-radius:6px;padding:5px 7px;min-width:0}
+.gh-stats{display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap}
+.gh-stats--grid{display:grid!important;grid-template-columns:1fr 1fr}
+.gh-stat{display:flex;flex-direction:column;align-items:center;background:var(--background-secondary);border-radius:6px;padding:5px 7px;flex:1;min-width:0}
+.gh-stats--grid .gh-stat{flex:unset}
 .gh-stat--wide{grid-column:1 / -1}
 .gh-stat-val{font-size:13px;font-weight:700;color:var(--interactive-accent);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .gh-stat-lbl{font-size:9px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;text-align:center}
+.gh-stats-compact{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;align-items:center}
+.gh-chip{display:inline-flex;align-items:center;gap:3px;background:var(--background-secondary);border-radius:4px;padding:3px 6px;font-size:11px;white-space:nowrap}
+.gh-chip-icon{font-size:10px}
+.gh-chip-val{font-weight:700;color:var(--interactive-accent)}
 .gh-graph-wrap{overflow-x:auto;padding-bottom:4px}
 .gh-month-lbl{font-size:9px;color:var(--text-faint)}
 .gh-cell{border-radius:2px;cursor:pointer;transition:transform .1s;flex-shrink:0;box-sizing:border-box}
