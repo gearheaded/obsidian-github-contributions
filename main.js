@@ -797,9 +797,9 @@ body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2
 .gh-nav-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:14px;line-height:1;padding:1px 6px;transition:background .15s}
 .gh-nav-btn:hover:not(:disabled){background:var(--background-modifier-hover);color:var(--text-normal)}
 .gh-nav-btn:disabled{opacity:.3;cursor:default}
-.gh-stats{display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap}
-.gh-stat{display:flex;flex-direction:column;align-items:center;background:var(--background-secondary);border-radius:6px;padding:5px 7px;flex:1;min-width:0}
-.gh-stat--wide{flex:2 1 auto;max-width:100%}
+.gh-stats{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:10px}
+.gh-stat{display:flex;flex-direction:column;align-items:center;background:var(--background-secondary);border-radius:6px;padding:5px 7px;min-width:0}
+.gh-stat--wide{grid-column:1 / -1}
 .gh-stat-val{font-size:13px;font-weight:700;color:var(--interactive-accent);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .gh-stat-lbl{font-size:9px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;text-align:center}
 .gh-graph-wrap{overflow-x:auto;padding-bottom:4px}
