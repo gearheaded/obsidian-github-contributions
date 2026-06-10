@@ -10,13 +10,13 @@ import {
   TFile,
 } from "obsidian";
 
-// ## Constants ################################################################
+// ── Constants ────────────────────────────────────────────────────────────────
 const VIEW_TYPE = "github-contributions";
 const GITHUB_GRAPHQL = "https://api.github.com/graphql";
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-// ## Types ####################################################################
+// ── Types ────────────────────────────────────────────────────────────────────
 type SizePreset = "ultra-compact" | "compact" | "medium" | "large" | "fit";
 type ViewMode = "year" | "month";
 type DataSource = "github" | "local" | "both";
@@ -79,7 +79,7 @@ const PRESET_SIZES: Record<SizePreset, { cell: number; gap: number }> = {
   "fit":           { cell: 0,  gap: 2 }, // calculated at render time
 };
 
-// ## GitHub API ###############################################################
+// ── GitHub API ───────────────────────────────────────────────────────────────
 async function fetchGitHubContributions(
   username: string,
   token: string,
@@ -107,7 +107,7 @@ async function fetchGitHubContributions(
   return map;
 }
 
-// ## Local Git ################################################################
+// ── Local Git ────────────────────────────────────────────────────────────────
 
 // Use Obsidian's adapter to run shell commands (desktop only via child_process via require)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -181,7 +181,7 @@ function fetchLocalCommits(repo: LocalRepo, year: number): Map<string, number> {
   return map;
 }
 
-// ## Build unified day map ####################################################
+// ── Build unified day map ────────────────────────────────────────────────────
 async function buildDayMap(
   settings: GitHubContributionsSettings,
   year: number,
@@ -226,7 +226,7 @@ async function buildDayMap(
   return { days, totalGH, totalLocal, repoList: repos };
 }
 
-// ## Generate full year week structure ########################################
+// ── Generate full year week structure ────────────────────────────────────────
 function buildYearWeeks(year: number, days: Map<string, DayData>): DayData[][] {
   // Build array of all dates in the year, padded to start on Sunday
   const jan1 = new Date(year, 0, 1);
@@ -274,7 +274,7 @@ function buildMonthDays(year: number, month: number, days: Map<string, DayData>)
   return weeks;
 }
 
-// ## Streaks ##################################################################
+// ── Streaks ──────────────────────────────────────────────────────────────────
 function calculateStreaks(days: Map<string, DayData>, year: number): StreakInfo {
   const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
   const daysInYear = isLeap ? 366 : 365;
@@ -321,7 +321,7 @@ function mostRecentRepo(repos: LocalRepo[]): string | null {
   return sorted[0]?.name ?? null;
 }
 
-// ## View #####################################################################
+// ── View ─────────────────────────────────────────────────────────────────────
 export class ContributionsView extends ItemView {
   plugin: GitHubContributionsPlugin;
   displayYear: number;
@@ -375,9 +375,9 @@ export class ContributionsView extends ItemView {
     // Fit: calculate based on panel width
     // Year view: 53 columns. Month view: 7 columns.
     const cols = this.viewMode === "year" ? 53 : 7;
-    const padding = 20;
     const gap = 2;
-    const available = (this.panelWidth || 240) - padding;
+    // Account for container padding (10px each side) + scrollbar (~8px)
+    const available = Math.max(100, (this.panelWidth || 260) - 28);
     const cell = Math.max(5, Math.floor((available - gap * (cols - 1)) / cols));
     return { cell, gap };
   }
@@ -441,19 +441,10 @@ export class ContributionsView extends ItemView {
     const s = this.plugin.settings;
     const header = container.createDiv({ cls: "gh-header" });
 
-    // Left: username + view toggle
-    const left = header.createDiv({ cls: "gh-header-left" });
-    if (s.githubUsername) left.createEl("span", { cls: "gh-username", text: s.githubUsername });
+    // Left: username
+    if (s.githubUsername) header.createEl("span", { cls: "gh-username", text: s.githubUsername });
 
-    const viewToggle = left.createDiv({ cls: "gh-view-toggle" });
-    const yearBtn = viewToggle.createEl("button", { cls: "gh-toggle-btn", text: "Year" });
-    const monthBtn = viewToggle.createEl("button", { cls: "gh-toggle-btn", text: "Month" });
-    if (this.viewMode === "year") yearBtn.addClass("gh-toggle-btn--active");
-    else monthBtn.addClass("gh-toggle-btn--active");
-    yearBtn.onclick = async () => { this.viewMode = "year"; await this.render(); };
-    monthBtn.onclick = async () => { this.viewMode = "month"; await this.render(); };
-
-    // Right: nav
+    // Right: nav only
     const nav = header.createDiv({ cls: "gh-nav" });
     const currentYear = new Date().getFullYear();
 
@@ -501,8 +492,11 @@ export class ContributionsView extends ItemView {
     }
 
     if (info.recentRepo) {
+      const maxLen = 16;
+      const name = info.recentRepo.length > maxLen ? info.recentRepo.slice(0, maxLen - 1) + "\u2026" : info.recentRepo;
       const pill = stats.createDiv({ cls: "gh-stat gh-stat--wide" });
-      pill.createEl("span", { cls: "gh-stat-val", text: info.recentRepo });
+      pill.title = info.recentRepo;
+      pill.createEl("span", { cls: "gh-stat-val", text: name });
       pill.createEl("span", { cls: "gh-stat-lbl", text: "recent repo" });
     }
   }
@@ -548,22 +542,22 @@ export class ContributionsView extends ItemView {
   private renderMonthGrid(container: HTMLElement, weeks: DayData[][]) {
     const { cell, gap } = this.getCellSize();
     const graphWrap = container.createDiv({ cls: "gh-graph-wrap" });
+    const colTemplate = `repeat(7,${cell}px)`;
 
-    // Day-of-week headers
+    // Day-of-week headers - use same grid columns as cells so they align
     const dowRow = graphWrap.createDiv({ cls: "gh-dow-row" });
-    dowRow.style.cssText = `display:grid;grid-template-columns:repeat(7,${cell}px);gap:${gap}px;margin-bottom:3px`;
+    dowRow.style.cssText = `display:grid;grid-template-columns:${colTemplate};gap:${gap}px;margin-bottom:4px`;
     ["Su","Mo","Tu","We","Th","Fr","Sa"].forEach(d => {
-      const lbl = dowRow.createEl("span", { cls: "gh-month-lbl", text: d });
-      lbl.style.fontSize = Math.max(8, cell - 2) + "px";
-      lbl.style.textAlign = "center";
+      const lbl = dowRow.createEl("span", { cls: "gh-dow-lbl", text: d });
+      lbl.style.cssText = `font-size:10px;color:var(--text-faint);text-align:center;overflow:hidden`;
     });
 
-    // Grid - rows are weeks
+    // Grid - rows are weeks, also grid for perfect alignment
     const grid = graphWrap.createDiv({ cls: "gh-month-grid" });
     grid.style.cssText = `display:flex;flex-direction:column;gap:${gap}px`;
     weeks.forEach(week => {
       const row = grid.createDiv({ cls: "gh-month-row-cells" });
-      row.style.cssText = `display:flex;gap:${gap}px`;
+      row.style.cssText = `display:grid;grid-template-columns:${colTemplate};gap:${gap}px`;
       week.forEach(day => this.renderCell(row, day, cell));
     });
   }
@@ -697,7 +691,7 @@ export class ContributionsView extends ItemView {
   }
 }
 
-// ## Helpers ##################################################################
+// ── Helpers ──────────────────────────────────────────────────────────────────
 function countToLevel(n: number): number {
   if (n === 0) return 0;
   if (n <= 2) return 1;
@@ -706,7 +700,7 @@ function countToLevel(n: number): number {
   return 4;
 }
 
-// ## Settings Tab #############################################################
+// ── Settings Tab ─────────────────────────────────────────────────────────────
 class GitHubContributionsSettingTab extends PluginSettingTab {
   plugin: GitHubContributionsPlugin;
   constructor(app: App, plugin: GitHubContributionsPlugin) {
@@ -719,7 +713,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("h2", { text: "GitHub Contributions" });
 
-    // ## Data Sources
+    // ── Data Sources
     containerEl.createEl("h3", { text: "Data Sources" });
 
     new Setting(containerEl)
@@ -759,7 +753,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
           .onChange(async v => { this.plugin.settings.localRepoRoot = v.trim(); await this.plugin.saveSettings(); }));
     }
 
-    // ## Display
+    // ── Display
     containerEl.createEl("h3", { text: "Display" });
 
     new Setting(containerEl)
@@ -797,7 +791,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
           }
         }));
 
-    // ## Daily Notes
+    // ── Daily Notes
     containerEl.createEl("h3", { text: "Daily Notes" });
 
     new Setting(containerEl)
@@ -814,7 +808,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
   }
 }
 
-// ## Plugin ###################################################################
+// ── Plugin ───────────────────────────────────────────────────────────────────
 export default class GitHubContributionsPlugin extends Plugin {
   settings: GitHubContributionsSettings = { ...DEFAULT_SETTINGS };
 
@@ -860,13 +854,8 @@ export default class GitHubContributionsPlugin extends Plugin {
     style.id = "gh-contributions-styles";
     style.textContent = `
 .gh-contributions-view{padding:12px 10px 16px;overflow-y:auto;overflow-x:hidden;user-select:none}
-.gh-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;gap:6px}
-.gh-header-left{display:flex;flex-direction:column;gap:4px;min-width:0}
-.gh-username{font-size:13px;font-weight:600;color:var(--text-normal);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.gh-view-toggle{display:flex;gap:2px}
-.gh-toggle-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:11px;padding:2px 7px;transition:background .15s}
-.gh-toggle-btn:hover{background:var(--background-modifier-hover);color:var(--text-normal)}
-.gh-toggle-btn--active{background:var(--interactive-accent)!important;color:var(--text-on-accent)!important;border-color:var(--interactive-accent)!important}
+.gh-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:6px}
+.gh-username{font-size:13px;font-weight:600;color:var(--text-normal);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .gh-nav{display:flex;align-items:center;gap:3px;flex-shrink:0}
 .gh-nav-label{font-size:12px;color:var(--text-muted);min-width:52px;text-align:center;white-space:nowrap}
 .gh-nav-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:14px;line-height:1;padding:1px 6px;transition:background .15s}

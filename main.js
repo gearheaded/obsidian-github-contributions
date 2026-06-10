@@ -330,9 +330,8 @@ var ContributionsView = class extends import_obsidian.ItemView {
     if (preset !== "fit")
       return PRESET_SIZES[preset];
     const cols = this.viewMode === "year" ? 53 : 7;
-    const padding = 20;
     const gap = 2;
-    const available = (this.panelWidth || 240) - padding;
+    const available = Math.max(100, (this.panelWidth || 260) - 28);
     const cell = Math.max(5, Math.floor((available - gap * (cols - 1)) / cols));
     return { cell, gap };
   }
@@ -384,24 +383,8 @@ var ContributionsView = class extends import_obsidian.ItemView {
   renderHeader(container) {
     const s = this.plugin.settings;
     const header = container.createDiv({ cls: "gh-header" });
-    const left = header.createDiv({ cls: "gh-header-left" });
     if (s.githubUsername)
-      left.createEl("span", { cls: "gh-username", text: s.githubUsername });
-    const viewToggle = left.createDiv({ cls: "gh-view-toggle" });
-    const yearBtn = viewToggle.createEl("button", { cls: "gh-toggle-btn", text: "Year" });
-    const monthBtn = viewToggle.createEl("button", { cls: "gh-toggle-btn", text: "Month" });
-    if (this.viewMode === "year")
-      yearBtn.addClass("gh-toggle-btn--active");
-    else
-      monthBtn.addClass("gh-toggle-btn--active");
-    yearBtn.onclick = async () => {
-      this.viewMode = "year";
-      await this.render();
-    };
-    monthBtn.onclick = async () => {
-      this.viewMode = "month";
-      await this.render();
-    };
+      header.createEl("span", { cls: "gh-username", text: s.githubUsername });
     const nav = header.createDiv({ cls: "gh-nav" });
     const currentYear = new Date().getFullYear();
     if (this.viewMode === "year") {
@@ -456,8 +439,11 @@ var ContributionsView = class extends import_obsidian.ItemView {
       this.pill(stats, String(info.sinceCommit) + "d", "since commit");
     }
     if (info.recentRepo) {
+      const maxLen = 16;
+      const name = info.recentRepo.length > maxLen ? info.recentRepo.slice(0, maxLen - 1) + "\u2026" : info.recentRepo;
       const pill = stats.createDiv({ cls: "gh-stat gh-stat--wide" });
-      pill.createEl("span", { cls: "gh-stat-val", text: info.recentRepo });
+      pill.title = info.recentRepo;
+      pill.createEl("span", { cls: "gh-stat-val", text: name });
       pill.createEl("span", { cls: "gh-stat-lbl", text: "recent repo" });
     }
   }
@@ -496,18 +482,18 @@ var ContributionsView = class extends import_obsidian.ItemView {
   renderMonthGrid(container, weeks) {
     const { cell, gap } = this.getCellSize();
     const graphWrap = container.createDiv({ cls: "gh-graph-wrap" });
+    const colTemplate = `repeat(7,${cell}px)`;
     const dowRow = graphWrap.createDiv({ cls: "gh-dow-row" });
-    dowRow.style.cssText = `display:grid;grid-template-columns:repeat(7,${cell}px);gap:${gap}px;margin-bottom:3px`;
+    dowRow.style.cssText = `display:grid;grid-template-columns:${colTemplate};gap:${gap}px;margin-bottom:4px`;
     ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].forEach((d) => {
-      const lbl = dowRow.createEl("span", { cls: "gh-month-lbl", text: d });
-      lbl.style.fontSize = Math.max(8, cell - 2) + "px";
-      lbl.style.textAlign = "center";
+      const lbl = dowRow.createEl("span", { cls: "gh-dow-lbl", text: d });
+      lbl.style.cssText = `font-size:10px;color:var(--text-faint);text-align:center;overflow:hidden`;
     });
     const grid = graphWrap.createDiv({ cls: "gh-month-grid" });
     grid.style.cssText = `display:flex;flex-direction:column;gap:${gap}px`;
     weeks.forEach((week) => {
       const row = grid.createDiv({ cls: "gh-month-row-cells" });
-      row.style.cssText = `display:flex;gap:${gap}px`;
+      row.style.cssText = `display:grid;grid-template-columns:${colTemplate};gap:${gap}px`;
       week.forEach((day) => this.renderCell(row, day, cell));
     });
   }
@@ -758,13 +744,8 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
     style.id = "gh-contributions-styles";
     style.textContent = `
 .gh-contributions-view{padding:12px 10px 16px;overflow-y:auto;overflow-x:hidden;user-select:none}
-.gh-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;gap:6px}
-.gh-header-left{display:flex;flex-direction:column;gap:4px;min-width:0}
-.gh-username{font-size:13px;font-weight:600;color:var(--text-normal);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.gh-view-toggle{display:flex;gap:2px}
-.gh-toggle-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:11px;padding:2px 7px;transition:background .15s}
-.gh-toggle-btn:hover{background:var(--background-modifier-hover);color:var(--text-normal)}
-.gh-toggle-btn--active{background:var(--interactive-accent)!important;color:var(--text-on-accent)!important;border-color:var(--interactive-accent)!important}
+.gh-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:6px}
+.gh-username{font-size:13px;font-weight:600;color:var(--text-normal);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .gh-nav{display:flex;align-items:center;gap:3px;flex-shrink:0}
 .gh-nav-label{font-size:12px;color:var(--text-muted);min-width:52px;text-align:center;white-space:nowrap}
 .gh-nav-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:14px;line-height:1;padding:1px 6px;transition:background .15s}
