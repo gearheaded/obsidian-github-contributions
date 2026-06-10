@@ -72,6 +72,10 @@ var PALETTES = {
   "neon": {
     dark: ["var(--background-modifier-border)", "#2d0a4e", "#7b00c2", "#e0008c", "#ffe600"],
     light: ["#f5eaff", "#c97df5", "#9400d3", "#d4006a", "#c8a800"]
+  },
+  "ember": {
+    dark: ["var(--background-modifier-border)", "#3d1f00", "#b45200", "#e8820c", "#ffc832"],
+    light: ["#f5f0e8", "#f5d5a0", "#e8820c", "#b45200", "#7a3200"]
   }
 };
 async function fetchGitHubContributions(username, token, year) {
@@ -798,7 +802,7 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
       })
     );
     new import_obsidian.Setting(containerEl).setName("Colour palette").setDesc("Colour scheme for contribution cells").addDropdown(
-      (d) => d.addOption("default", "Default (GitHub greens)").addOption("high-contrast", "High contrast (vivid greens)").addOption("colorblind", "Colorblind friendly (blue to cyan)").addOption("neon", "Neon (purple to yellow)").setValue(this.plugin.settings.palette).onChange(async (v) => {
+      (d) => d.addOption("default", "Default (GitHub greens)").addOption("high-contrast", "High contrast (vivid greens)").addOption("colorblind", "Colorblind friendly (blue to cyan)").addOption("neon", "Neon (purple to yellow)").addOption("ember", "Ember (amber to gold)").setValue(this.plugin.settings.palette).onChange(async (v) => {
         this.plugin.settings.palette = v;
         await this.plugin.saveSettings();
       })
