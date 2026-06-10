@@ -41,6 +41,7 @@ var DEFAULT_SETTINGS = {
   selectedYear: new Date().getFullYear(),
   sizePreset: "medium",
   defaultView: "year",
+  palette: "default",
   dailyNoteFolder: "",
   dailyNoteDateFormat: "YYYY-MM-DD"
 };
@@ -51,6 +52,24 @@ var PRESET_SIZES = {
   "large": { cell: 14, gap: 3 },
   "fit": { cell: 0, gap: 2 }
   // calculated at render time
+};
+var PALETTES = {
+  "default": {
+    dark: ["var(--background-modifier-border)", "#0e4429", "#006d32", "#26a641", "#39d353"],
+    light: ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"]
+  },
+  "high-contrast": {
+    dark: ["var(--background-modifier-border)", "#1a5e2a", "#21a045", "#32d463", "#7fffb0"],
+    light: ["#ebedf0", "#b6f0c2", "#3dd668", "#1a9e40", "#0a5c25"]
+  },
+  "colorblind": {
+    dark: ["var(--background-modifier-border)", "#0a3a6b", "#0e6eb5", "#1ab3d8", "#57e8f5"],
+    light: ["#edf4fb", "#b3d4f0", "#4aa8e0", "#1478c8", "#064a8a"]
+  },
+  "neon": {
+    dark: ["var(--background-modifier-border)", "#2d0a4e", "#7b00c2", "#e0008c", "#ffe600"],
+    light: ["#f5eaff", "#c97df5", "#9400d3", "#d4006a", "#c8a800"]
+  }
 };
 async function fetchGitHubContributions(username, token, year) {
   var _a, _b, _c, _d, _e, _f;
@@ -677,6 +696,12 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
       this.plugin.settings.sidebarSide = v;
       await this.plugin.saveSettings();
     }));
+    new import_obsidian.Setting(containerEl).setName("Colour palette").setDesc("Colour scheme for contribution cells").addDropdown(
+      (d) => d.addOption("default", "Default (GitHub greens)").addOption("high-contrast", "High contrast (vivid greens)").addOption("colorblind", "Colorblind friendly (blue to cyan)").addOption("neon", "Neon (purple to yellow)").setValue(this.plugin.settings.palette).onChange(async (v) => {
+        this.plugin.settings.palette = v;
+        await this.plugin.saveSettings();
+      })
+    );
     new import_obsidian.Setting(containerEl).setName("Size").setDesc('Cell size. "Fit to sidebar" auto-sizes to fill the panel width.').addDropdown((d) => d.addOption("ultra-compact", "Ultra compact").addOption("compact", "Compact").addOption("medium", "Medium").addOption("large", "Large").addOption("fit", "Fit to sidebar").setValue(this.plugin.settings.sizePreset).onChange(async (v) => {
       this.plugin.settings.sizePreset = v;
       await this.plugin.saveSettings();
@@ -715,11 +740,13 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
     this.addRibbonIcon("github", "GitHub Contributions", () => this.activateView());
     this.addCommand({ id: "open-github-contributions", name: "Open GitHub Contributions panel", callback: () => this.activateView() });
     this.injectStyles();
+    this.injectPaletteStyles();
   }
   onunload() {
-    var _a;
+    var _a, _b;
     this.app.workspace.detachLeavesOfType(VIEW_TYPE);
     (_a = document.getElementById("gh-contributions-styles")) == null ? void 0 : _a.remove();
+    (_b = document.getElementById("gh-palette-styles")) == null ? void 0 : _b.remove();
     document.querySelectorAll(".gh-tooltip").forEach((el) => el.remove());
   }
   async activateView() {
@@ -741,10 +768,25 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
   }
   async saveSettings() {
     await this.saveData(this.settings);
+    this.injectPaletteStyles();
     this.app.workspace.getLeavesOfType(VIEW_TYPE).forEach((leaf) => {
       if (leaf.view instanceof ContributionsView)
         leaf.view.refresh();
     });
+  }
+  injectPaletteStyles() {
+    var _a;
+    const existing = document.getElementById("gh-palette-styles");
+    if (existing)
+      existing.remove();
+    const p = (_a = PALETTES[this.settings.palette]) != null ? _a : PALETTES["default"];
+    const style = document.createElement("style");
+    style.id = "gh-palette-styles";
+    style.textContent = `
+body{--gh-c0:${p.dark[0]};--gh-c1:${p.dark[1]};--gh-c2:${p.dark[2]};--gh-c3:${p.dark[3]};--gh-c4:${p.dark[4]}}
+body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2]};--gh-c3:${p.light[3]};--gh-c4:${p.light[4]}}
+    `;
+    document.head.appendChild(style);
   }
   injectStyles() {
     if (document.getElementById("gh-contributions-styles"))
@@ -772,16 +814,11 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
 .gh-cell--empty{background:transparent!important;cursor:default!important}
 .gh-cell--empty:hover{transform:none!important}
 .gh-today{outline:2px solid var(--interactive-accent)!important;outline-offset:1px}
-.gh-cell[data-level="0"]{background:var(--background-modifier-border)}
-.gh-cell[data-level="1"]{background:#0e4429}
-.gh-cell[data-level="2"]{background:#006d32}
-.gh-cell[data-level="3"]{background:#26a641}
-.gh-cell[data-level="4"]{background:#39d353}
-.theme-light .gh-cell[data-level="0"]{background:#ebedf0}
-.theme-light .gh-cell[data-level="1"]{background:#9be9a8}
-.theme-light .gh-cell[data-level="2"]{background:#40c463}
-.theme-light .gh-cell[data-level="3"]{background:#30a14e}
-.theme-light .gh-cell[data-level="4"]{background:#216e39}
+.gh-cell[data-level="0"]{background:var(--gh-c0)}
+.gh-cell[data-level="1"]{background:var(--gh-c1)}
+.gh-cell[data-level="2"]{background:var(--gh-c2)}
+.gh-cell[data-level="3"]{background:var(--gh-c3)}
+.gh-cell[data-level="4"]{background:var(--gh-c4)}
 .gh-legend{display:flex;align-items:center;gap:3px;margin-top:8px;justify-content:flex-end}
 .gh-legend-lbl{font-size:9px;color:var(--text-faint)}
 .gh-legend-cell{cursor:default!important}
