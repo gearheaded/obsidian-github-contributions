@@ -78,15 +78,20 @@ async function fetchGitHubContributions(username, token, year) {
   }
   return map;
 }
-var { execSync } = window.require("child_process");
+var isDesktop = !!window.require;
 function runGit(args, cwd) {
+  if (!isDesktop)
+    return "";
   try {
+    const { execSync } = window.require("child_process");
     return execSync(`git ${args}`, { cwd, timeout: 8e3, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
   } catch (e) {
     return "";
   }
 }
 async function discoverRepos(rootPath) {
+  if (!isDesktop)
+    return [];
   const repos = [];
   try {
     const fs = window.require("fs");
@@ -127,8 +132,8 @@ async function discoverRepos(rootPath) {
 function fetchLocalCommits(repo, year) {
   var _a;
   const map = /* @__PURE__ */ new Map();
-  const after = `${year}-01-01`;
-  const before = `${year}-12-31`;
+  const after = `${year - 1}-12-31`;
+  const before = `${year + 1}-01-01`;
   const raw = runGit(
     `log --after="${after}" --before="${before}" --format=%ad --date=format:%Y-%m-%d`,
     repo.path
@@ -137,7 +142,7 @@ function fetchLocalCommits(repo, year) {
     return map;
   for (const line of raw.split("\n")) {
     const date = line.trim();
-    if (!date)
+    if (!date || !date.startsWith(String(year)))
       continue;
     map.set(date, ((_a = map.get(date)) != null ? _a : 0) + 1);
   }
@@ -658,10 +663,14 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
       });
     }
     if (src === "local" || src === "both") {
-      new import_obsidian.Setting(containerEl).setName("Local repo root").setDesc("Folder to scan for git repositories (searches 2 levels deep)").addText((t) => t.setPlaceholder("C:\\Users\\Peter\\Projects").setValue(this.plugin.settings.localRepoRoot).onChange(async (v) => {
-        this.plugin.settings.localRepoRoot = v.trim();
-        await this.plugin.saveSettings();
-      }));
+      if (!isDesktop) {
+        containerEl.createEl("p", { cls: "gh-settings-notice", text: "\u26A0 Local git scanning is not available on mobile." });
+      } else {
+        new import_obsidian.Setting(containerEl).setName("Local repo root").setDesc("Folder to scan for git repositories (searches 2 levels deep)").addText((t) => t.setPlaceholder("C:\\Users\\Peter\\Projects").setValue(this.plugin.settings.localRepoRoot).onChange(async (v) => {
+          this.plugin.settings.localRepoRoot = v.trim();
+          await this.plugin.saveSettings();
+        }));
+      }
     }
     containerEl.createEl("h3", { text: "Display" });
     new import_obsidian.Setting(containerEl).setName("Sidebar side").addDropdown((d) => d.addOption("left", "Left").addOption("right", "Right").setValue(this.plugin.settings.sidebarSide).onChange(async (v) => {

@@ -111,10 +111,13 @@ async function fetchGitHubContributions(
 
 // Use Obsidian's adapter to run shell commands (desktop only via child_process via require)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const { execSync } = (window as any).require("child_process");
+const isDesktop = !!(window as any).require;
 
 function runGit(args: string, cwd: string): string {
+  if (!isDesktop) return "";
   try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { execSync } = (window as any).require("child_process");
     return execSync(`git ${args}`, { cwd, timeout: 8000, encoding: "utf8", stdio: ["pipe","pipe","pipe"] });
   } catch {
     return "";
@@ -127,6 +130,7 @@ function isGitRepo(path: string): boolean {
 }
 
 async function discoverRepos(rootPath: string): Promise<LocalRepo[]> {
+  if (!isDesktop) return [];
   const repos: LocalRepo[] = [];
   // Use find-like approach: list subdirectories up to 2 levels deep that contain .git
   try {
@@ -166,8 +170,9 @@ async function discoverRepos(rootPath: string): Promise<LocalRepo[]> {
 
 function fetchLocalCommits(repo: LocalRepo, year: number): Map<string, number> {
   const map = new Map<string, number>();
-  const after  = `${year}-01-01`;
-  const before = `${year}-12-31`;
+  // Use day before/after to make range inclusive (--after/--before are exclusive in git)
+  const after  = `${year - 1}-12-31`;
+  const before = `${year + 1}-01-01`;
   const raw = runGit(
     `log --after="${after}" --before="${before}" --format=%ad --date=format:%Y-%m-%d`,
     repo.path
@@ -175,7 +180,7 @@ function fetchLocalCommits(repo: LocalRepo, year: number): Map<string, number> {
   if (!raw) return map;
   for (const line of raw.split("\n")) {
     const date = line.trim();
-    if (!date) continue;
+    if (!date || !date.startsWith(String(year))) continue;
     map.set(date, (map.get(date) ?? 0) + 1);
   }
   return map;
@@ -746,11 +751,15 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
     }
 
     if (src === "local" || src === "both") {
-      new Setting(containerEl)
-        .setName("Local repo root")
-        .setDesc("Folder to scan for git repositories (searches 2 levels deep)")
-        .addText(t => t.setPlaceholder("C:\\Users\\Peter\\Projects").setValue(this.plugin.settings.localRepoRoot)
-          .onChange(async v => { this.plugin.settings.localRepoRoot = v.trim(); await this.plugin.saveSettings(); }));
+      if (!isDesktop) {
+        containerEl.createEl("p", { cls: "gh-settings-notice", text: "⚠ Local git scanning is not available on mobile." });
+      } else {
+        new Setting(containerEl)
+          .setName("Local repo root")
+          .setDesc("Folder to scan for git repositories (searches 2 levels deep)")
+          .addText(t => t.setPlaceholder("C:\\Users\\Peter\\Projects").setValue(this.plugin.settings.localRepoRoot)
+            .onChange(async v => { this.plugin.settings.localRepoRoot = v.trim(); await this.plugin.saveSettings(); }));
+      }
     }
 
     // ── Display
