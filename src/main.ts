@@ -536,7 +536,7 @@ export class ContributionsView extends ItemView {
       if (showLocal && info.sinceCommit !== null)
         items.push(["⏱", info.sinceCommit + "d", "Days since last commit"]);
       if (info.recentRepo)
-        items.push(["📁", info.recentRepo.length > 10 ? info.recentRepo.slice(0,9) + "\u2026" : info.recentRepo, info.recentRepo]);
+        items.push(["📁", info.recentRepo.length > 20 ? info.recentRepo.slice(0,19) + "\u2026" : info.recentRepo, info.recentRepo]);
       for (const [icon, val, title] of items) {
         const chip = row.createEl("span", { cls: "gh-chip", title });
         chip.createEl("span", { cls: "gh-chip-icon", text: icon });
@@ -566,9 +566,9 @@ export class ContributionsView extends ItemView {
       if (showLocal && info.sinceCommit !== null)
         this.pill(stats, info.sinceCommit + "d", "since commit");
       if (info.recentRepo) {
-        const maxLen = 16;
+        const maxLen = 20;
         const name = info.recentRepo.length > maxLen ? info.recentRepo.slice(0, maxLen-1) + "\u2026" : info.recentRepo;
-        const pill = stats.createDiv({ cls: "gh-stat" });
+        const pill = stats.createDiv({ cls: "gh-stat gh-stat--wide" });
         pill.title = info.recentRepo;
         pill.createEl("span", { cls: "gh-stat-val", text: name });
         pill.createEl("span", { cls: "gh-stat-lbl", text: "recent repo" });
