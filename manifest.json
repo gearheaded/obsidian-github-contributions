@@ -1,9 +1,9 @@
 {
   "id": "github-contributions",
   "name": "GitHub Contributions",
-  "version": "1.5.0",
+  "version": "2.5.0",
   "minAppVersion": "0.15.0",
-  "description": "Display your GitHub contribution graph in the Obsidian sidebar with streak tracking, tooltips, and daily note integration.",
+  "description": "Display GitHub and local Git contribution graphs in the Obsidian sidebar with streak tracking, repository insights, and daily note integration.",
   "author": "gearheaded",
   "authorUrl": "",
   "isDesktopOnly": false
