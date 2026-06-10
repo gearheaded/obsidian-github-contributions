@@ -395,6 +395,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
       const style = (_a = this.plugin.settings.statsStyle) != null ? _a : "default";
       if (recentRepo && style === "default") {
         const repoLine = container.createDiv({ cls: "gh-repo-line" });
+        repoLine.createEl("span", { cls: "gh-repo-line-icon", text: "\u{1F4C1} " });
         repoLine.createEl("span", { cls: "gh-repo-line-name", text: recentRepo });
       }
       if (this.viewMode === "year") {
@@ -499,12 +500,20 @@ var ContributionsView = class extends import_obsidian.ItemView {
         pill.createEl("span", { cls: "gh-stat-lbl", text: "recent repo" });
       }
     } else {
-      const stats = container.createDiv({ cls: "gh-stats" });
-      this.pill(stats, String(total), "contributions");
-      this.pill(stats, info.streaks.current + "d", "streak");
-      this.pill(stats, info.streaks.longest + "d", "best");
+      const list = container.createDiv({ cls: "gh-stats-list" });
+      const items = [
+        ["\u2191", String(total), "contributions"],
+        ["\u{1F525}", info.streaks.current + "d", "streak"],
+        ["\u2B50", info.streaks.longest + "d", "best"]
+      ];
       if (showLocal && info.sinceCommit !== null)
-        this.pill(stats, info.sinceCommit + "d", "since commit");
+        items.push(["\u23F1", info.sinceCommit + "d", "since commit"]);
+      for (const [icon, val, label] of items) {
+        const row = list.createDiv({ cls: "gh-stats-list-row" });
+        row.createEl("span", { cls: "gh-stats-list-icon", text: icon });
+        row.createEl("span", { cls: "gh-stats-list-val", text: val });
+        row.createEl("span", { cls: "gh-stats-list-lbl", text: " " + label });
+      }
     }
   }
   pill(parent, value, label) {
@@ -848,8 +857,14 @@ body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2
 .gh-chip{display:inline-flex;align-items:center;gap:3px;background:var(--background-secondary);border-radius:4px;padding:3px 6px;font-size:11px;white-space:nowrap}
 .gh-chip-icon{font-size:10px}
 .gh-chip-val{font-weight:700;color:var(--interactive-accent)}
+.gh-stats-list{display:flex;flex-direction:column;gap:1px;margin-bottom:8px}
+.gh-stats-list-row{display:flex;align-items:baseline;gap:4px;font-size:11px;line-height:1.6}
+.gh-stats-list-icon{font-size:10px;width:14px;text-align:center;flex-shrink:0}
+.gh-stats-list-val{font-weight:700;color:var(--interactive-accent);font-size:12px}
+.gh-stats-list-lbl{color:var(--text-muted);font-size:11px}
 .gh-repo-line{margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid var(--background-modifier-border)}
-.gh-repo-line-name{font-size:11px;color:var(--text-muted);font-style:italic}
+.gh-repo-line-icon{font-size:10px;color:var(--text-faint)}
+.gh-repo-line-name{font-size:11px;color:var(--text-muted)}
 .gh-graph-wrap{overflow-x:auto;padding-bottom:4px}
 .gh-month-lbl{font-size:9px;color:var(--text-faint)}
 .gh-cell{border-radius:2px;cursor:pointer;transition:transform .1s;flex-shrink:0;box-sizing:border-box}
