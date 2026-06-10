@@ -464,7 +464,6 @@ export class ContributionsView extends ItemView {
       }
 
       this.renderLegend(container);
-      this.renderFooter(container);
     } catch (e) {
       container.empty();
       this.renderError(container, (e as Error).message);
@@ -507,6 +506,11 @@ export class ContributionsView extends ItemView {
         await this.render();
       };
     }
+
+    // Refresh icon button at end of nav row
+    const refreshBtn = nav.createEl("button", { cls: "gh-nav-btn gh-refresh-icon", text: "↻" });
+    refreshBtn.title = "Refresh";
+    refreshBtn.onclick = () => this.render();
   }
 
   private renderStats(container: HTMLElement, info: {
@@ -663,12 +667,6 @@ export class ContributionsView extends ItemView {
     legend.createEl("span", { cls: "gh-legend-lbl", text: "More" });
   }
 
-  private renderFooter(container: HTMLElement) {
-    const footer = container.createDiv({ cls: "gh-footer" });
-    const rb = footer.createEl("button", { cls: "gh-refresh-btn", text: "↻ Refresh" });
-    rb.onclick = () => this.render();
-  }
-
   private renderEmpty(container: HTMLElement, missing: "github" | "local") {
     const wrap = container.createDiv({ cls: "gh-empty" });
     wrap.createEl("div", { cls: "gh-empty-icon", text: "🐙" });
@@ -699,9 +697,6 @@ export class ContributionsView extends ItemView {
 
   private renderError(container: HTMLElement, msg: string) {
     container.createDiv({ cls: "gh-error", text: `⚠ ${msg}` });
-    const btn = container.createDiv({ cls: "gh-footer" })
-      .createEl("button", { cls: "gh-refresh-btn", text: "↻ Retry" });
-    btn.onclick = () => this.render();
   }
 
   private async openOrCreateDailyNote(date: string) {
@@ -949,9 +944,7 @@ body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2
 .gh-legend-lbl{font-size:9px;color:var(--text-faint)}
 .gh-legend-cell{cursor:default!important}
 .gh-legend-cell:hover{transform:none!important}
-.gh-footer{display:flex;justify-content:flex-end;margin-top:10px}
-.gh-refresh-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:11px;padding:3px 8px;transition:background .15s}
-.gh-refresh-btn:hover{background:var(--background-modifier-hover);color:var(--text-normal)}
+.gh-refresh-icon{margin-left:2px;font-size:13px!important}
 .gh-empty{display:flex;flex-direction:column;align-items:center;padding:24px 12px;text-align:center;gap:10px}
 .gh-empty-icon{font-size:32px}
 .gh-empty p{font-size:12px;color:var(--text-muted);line-height:1.5;margin:0}
