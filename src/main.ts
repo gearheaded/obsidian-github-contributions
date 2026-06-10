@@ -13,6 +13,10 @@ import {
 // ── Constants ────────────────────────────────────────────────────────────────
 const VIEW_TYPE = "github-contributions";
 const GITHUB_GRAPHQL = "https://api.github.com/graphql";
+const GITHUB_CLIENT_ID = "Ov23litfj5GbQ8mw81VV";
+const GITHUB_DEVICE_URL = "https://github.com/login/device/code";
+const GITHUB_TOKEN_URL  = "https://github.com/login/oauth/access_token";
+const GITHUB_USER_URL   = "https://api.github.com/user";
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
@@ -42,6 +46,7 @@ interface LocalRepo {
 
 interface GitHubContributionsSettings {
   // Auth
+  authMethod: "oauth" | "pat";
   githubToken: string;
   githubUsername: string;
   // Data sources
@@ -62,6 +67,7 @@ interface GitHubContributionsSettings {
 }
 
 const DEFAULT_SETTINGS: GitHubContributionsSettings = {
+  authMethod: "oauth",
   githubToken: "",
   githubUsername: "",
   dataSource: "github",
@@ -118,6 +124,68 @@ const PALETTES: Record<Palette, PaletteColors> = {
     light: ["#f5f0e8", "#f5d5a0", "#e8820c", "#b45200", "#7a3200"],
   },
 };
+
+// ── OAuth Device Flow ────────────────────────────────────────────────────────
+
+interface DeviceCodeResponse {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
+}
+
+async function requestDeviceCode(): Promise<DeviceCodeResponse> {
+  const res = await fetch(GITHUB_DEVICE_URL, {
+    method: "POST",
+    headers: { "Accept": "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: "read:user" }),
+  });
+  if (!res.ok) throw new Error(`GitHub device flow error: ${res.status}`);
+  return await res.json();
+}
+
+async function pollForToken(
+  deviceCode: string,
+  intervalSecs: number,
+  onCancel: () => boolean
+): Promise<string> {
+  const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+  const pollInterval = Math.max(intervalSecs, 5) * 1000;
+
+  while (true) {
+    if (onCancel()) throw new Error("Cancelled");
+    await delay(pollInterval);
+    if (onCancel()) throw new Error("Cancelled");
+
+    const res = await fetch(GITHUB_TOKEN_URL, {
+      method: "POST",
+      headers: { "Accept": "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        device_code: deviceCode,
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      }),
+    });
+    const data = await res.json();
+
+    if (data.access_token) return data.access_token;
+    if (data.error === "authorization_pending") continue;
+    if (data.error === "slow_down") { await delay(5000); continue; }
+    if (data.error === "expired_token") throw new Error("Code expired. Please try again.");
+    if (data.error === "access_denied") throw new Error("Access denied.");
+    throw new Error(data.error_description ?? "Unknown OAuth error");
+  }
+}
+
+async function fetchGitHubUsername(token: string): Promise<string> {
+  const res = await fetch(GITHUB_USER_URL, {
+    headers: { Authorization: `bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Could not fetch GitHub username");
+  const data = await res.json();
+  return data.login;
+}
 
 // ── GitHub API ───────────────────────────────────────────────────────────────
 async function fetchGitHubContributions(
@@ -859,19 +927,111 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
     const src = this.plugin.settings.dataSource;
 
     if (src === "github" || src === "both") {
+      // Auth method toggle
       new Setting(containerEl)
-        .setName("GitHub username")
-        .addText(t => t.setPlaceholder("username").setValue(this.plugin.settings.githubUsername)
-          .onChange(async v => { this.plugin.settings.githubUsername = v.trim(); await this.plugin.saveSettings(); }));
+        .setName("Authentication")
+        .setDesc("Connect GitHub to fetch your contribution data")
+        .addDropdown(d => d
+          .addOption("oauth", "Connect with GitHub (recommended)")
+          .addOption("pat",   "Personal Access Token (advanced)")
+          .setValue(this.plugin.settings.authMethod)
+          .onChange(async v => {
+            this.plugin.settings.authMethod = v as "oauth" | "pat";
+            await this.plugin.saveSettings();
+            this.display();
+          })
+        );
 
-      new Setting(containerEl)
-        .setName("Personal Access Token")
-        .setDesc("PAT with read:user scope — github.com/settings/tokens")
-        .addText(t => {
-          t.inputEl.type = "password";
-          t.setPlaceholder("ghp_…").setValue(this.plugin.settings.githubToken)
-            .onChange(async v => { this.plugin.settings.githubToken = v.trim(); await this.plugin.saveSettings(); });
-        });
+      if (this.plugin.settings.authMethod === "oauth") {
+        const isConnected = !!this.plugin.settings.githubToken && !!this.plugin.settings.githubUsername;
+
+        if (isConnected) {
+          new Setting(containerEl)
+            .setName("Connected as " + this.plugin.settings.githubUsername)
+            .setDesc("Your GitHub account is connected via OAuth")
+            .addButton(btn => btn
+              .setButtonText("Disconnect")
+              .setWarning()
+              .onClick(async () => {
+                this.plugin.settings.githubToken = "";
+                this.plugin.settings.githubUsername = "";
+                await this.plugin.saveSettings();
+                this.display();
+              })
+            );
+        } else {
+          // OAuth connect button + status area
+          let cancelled = false;
+          const oauthSetting = new Setting(containerEl)
+            .setName("Connect GitHub account")
+            .setDesc("Click to start the authorization flow");
+
+          oauthSetting.addButton(btn => btn
+            .setButtonText("Connect GitHub")
+            .setCta()
+            .onClick(async () => {
+              btn.setButtonText("Connecting...").setDisabled(true);
+              cancelled = false;
+              try {
+                const device = await requestDeviceCode();
+
+                // Show the user code prominently
+                oauthSetting.setDesc(
+                  createFragment(f => {
+                    f.appendText("Enter this code at ");
+                    f.createEl("strong", { text: "github.com/login/device" });
+                    f.createEl("br");
+                    f.createEl("span", { cls: "gh-oauth-code", text: device.user_code });
+                    f.createEl("br");
+                    f.createEl("em", { text: "Waiting for approval…" });
+                  })
+                );
+
+                // Open browser
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (window as any).open(device.verification_uri);
+
+                // Poll for token
+                const token = await pollForToken(device.device_code, device.interval, () => cancelled);
+                const username = await fetchGitHubUsername(token);
+
+                this.plugin.settings.githubToken = token;
+                this.plugin.settings.githubUsername = username;
+                await this.plugin.saveSettings();
+                new Notice("Connected to GitHub as " + username);
+                this.display();
+              } catch (e) {
+                const msg = (e as Error).message;
+                if (msg !== "Cancelled") {
+                  oauthSetting.setDesc("Error: " + msg);
+                  new Notice("GitHub connection failed: " + msg);
+                }
+                btn.setButtonText("Connect GitHub").setDisabled(false);
+              }
+            })
+          );
+
+          oauthSetting.addButton(btn => btn
+            .setButtonText("Cancel")
+            .onClick(() => { cancelled = true; oauthSetting.setDesc("Cancelled."); btn.setDisabled(true); })
+          );
+        }
+      } else {
+        // PAT mode
+        new Setting(containerEl)
+          .setName("GitHub username")
+          .addText(t => t.setPlaceholder("username").setValue(this.plugin.settings.githubUsername)
+            .onChange(async v => { this.plugin.settings.githubUsername = v.trim(); await this.plugin.saveSettings(); }));
+
+        new Setting(containerEl)
+          .setName("Personal Access Token")
+          .setDesc("PAT with read:user scope — github.com/settings/tokens")
+          .addText(t => {
+            t.inputEl.type = "password";
+            t.setPlaceholder("ghp_…").setValue(this.plugin.settings.githubToken)
+              .onChange(async v => { this.plugin.settings.githubToken = v.trim(); await this.plugin.saveSettings(); });
+          });
+      }
     }
 
     if (src === "local" || src === "both") {
@@ -1070,6 +1230,7 @@ body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2
 .gh-stats-list-icon{font-size:10px;width:14px;text-align:center;flex-shrink:0}
 .gh-stats-list-val{font-weight:700;color:var(--interactive-accent);font-size:12px}
 .gh-stats-list-lbl{color:var(--text-muted);font-size:11px}
+.gh-oauth-code{display:inline-block;font-size:22px;font-weight:700;letter-spacing:4px;color:var(--interactive-accent);font-family:var(--font-monospace);margin:6px 0;padding:4px 8px;background:var(--background-secondary);border-radius:6px}
 .gh-repo-line{margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid var(--background-modifier-border)}
 .gh-repo-line-icon{font-size:10px;color:var(--text-faint)}
 .gh-repo-line-name{font-size:11px;color:var(--text-muted)}

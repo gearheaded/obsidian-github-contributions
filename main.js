@@ -31,8 +31,13 @@ module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
 var VIEW_TYPE = "github-contributions";
 var GITHUB_GRAPHQL = "https://api.github.com/graphql";
+var GITHUB_CLIENT_ID = "Ov23litfj5GbQ8mw81VV";
+var GITHUB_DEVICE_URL = "https://github.com/login/device/code";
+var GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
+var GITHUB_USER_URL = "https://api.github.com/user";
 var MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 var DEFAULT_SETTINGS = {
+  authMethod: "oauth",
   githubToken: "",
   githubUsername: "",
   dataSource: "github",
@@ -78,6 +83,60 @@ var PALETTES = {
     light: ["#f5f0e8", "#f5d5a0", "#e8820c", "#b45200", "#7a3200"]
   }
 };
+async function requestDeviceCode() {
+  const res = await fetch(GITHUB_DEVICE_URL, {
+    method: "POST",
+    headers: { "Accept": "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: "read:user" })
+  });
+  if (!res.ok)
+    throw new Error(`GitHub device flow error: ${res.status}`);
+  return await res.json();
+}
+async function pollForToken(deviceCode, intervalSecs, onCancel) {
+  var _a;
+  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+  const pollInterval = Math.max(intervalSecs, 5) * 1e3;
+  while (true) {
+    if (onCancel())
+      throw new Error("Cancelled");
+    await delay(pollInterval);
+    if (onCancel())
+      throw new Error("Cancelled");
+    const res = await fetch(GITHUB_TOKEN_URL, {
+      method: "POST",
+      headers: { "Accept": "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        device_code: deviceCode,
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code"
+      })
+    });
+    const data = await res.json();
+    if (data.access_token)
+      return data.access_token;
+    if (data.error === "authorization_pending")
+      continue;
+    if (data.error === "slow_down") {
+      await delay(5e3);
+      continue;
+    }
+    if (data.error === "expired_token")
+      throw new Error("Code expired. Please try again.");
+    if (data.error === "access_denied")
+      throw new Error("Access denied.");
+    throw new Error((_a = data.error_description) != null ? _a : "Unknown OAuth error");
+  }
+}
+async function fetchGitHubUsername(token) {
+  const res = await fetch(GITHUB_USER_URL, {
+    headers: { Authorization: `bearer ${token}` }
+  });
+  if (!res.ok)
+    throw new Error("Could not fetch GitHub username");
+  const data = await res.json();
+  return data.login;
+}
 async function fetchGitHubContributions(username, token, year) {
   var _a, _b, _c, _d, _e, _f;
   const from = `${year}-01-01T00:00:00Z`;
@@ -762,17 +821,82 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
     );
     const src = this.plugin.settings.dataSource;
     if (src === "github" || src === "both") {
-      new import_obsidian.Setting(containerEl).setName("GitHub username").addText((t) => t.setPlaceholder("username").setValue(this.plugin.settings.githubUsername).onChange(async (v) => {
-        this.plugin.settings.githubUsername = v.trim();
-        await this.plugin.saveSettings();
-      }));
-      new import_obsidian.Setting(containerEl).setName("Personal Access Token").setDesc("PAT with read:user scope \u2014 github.com/settings/tokens").addText((t) => {
-        t.inputEl.type = "password";
-        t.setPlaceholder("ghp_\u2026").setValue(this.plugin.settings.githubToken).onChange(async (v) => {
-          this.plugin.settings.githubToken = v.trim();
+      new import_obsidian.Setting(containerEl).setName("Authentication").setDesc("Connect GitHub to fetch your contribution data").addDropdown(
+        (d) => d.addOption("oauth", "Connect with GitHub (recommended)").addOption("pat", "Personal Access Token (advanced)").setValue(this.plugin.settings.authMethod).onChange(async (v) => {
+          this.plugin.settings.authMethod = v;
           await this.plugin.saveSettings();
+          this.display();
+        })
+      );
+      if (this.plugin.settings.authMethod === "oauth") {
+        const isConnected = !!this.plugin.settings.githubToken && !!this.plugin.settings.githubUsername;
+        if (isConnected) {
+          new import_obsidian.Setting(containerEl).setName("Connected as " + this.plugin.settings.githubUsername).setDesc("Your GitHub account is connected via OAuth").addButton(
+            (btn) => btn.setButtonText("Disconnect").setWarning().onClick(async () => {
+              this.plugin.settings.githubToken = "";
+              this.plugin.settings.githubUsername = "";
+              await this.plugin.saveSettings();
+              this.display();
+            })
+          );
+        } else {
+          let cancelled = false;
+          const oauthSetting = new import_obsidian.Setting(containerEl).setName("Connect GitHub account").setDesc("Click to start the authorization flow");
+          oauthSetting.addButton(
+            (btn) => btn.setButtonText("Connect GitHub").setCta().onClick(async () => {
+              btn.setButtonText("Connecting...").setDisabled(true);
+              cancelled = false;
+              try {
+                const device = await requestDeviceCode();
+                oauthSetting.setDesc(
+                  createFragment((f) => {
+                    f.appendText("Enter this code at ");
+                    f.createEl("strong", { text: "github.com/login/device" });
+                    f.createEl("br");
+                    f.createEl("span", { cls: "gh-oauth-code", text: device.user_code });
+                    f.createEl("br");
+                    f.createEl("em", { text: "Waiting for approval\u2026" });
+                  })
+                );
+                window.open(device.verification_uri);
+                const token = await pollForToken(device.device_code, device.interval, () => cancelled);
+                const username = await fetchGitHubUsername(token);
+                this.plugin.settings.githubToken = token;
+                this.plugin.settings.githubUsername = username;
+                await this.plugin.saveSettings();
+                new import_obsidian.Notice("Connected to GitHub as " + username);
+                this.display();
+              } catch (e) {
+                const msg = e.message;
+                if (msg !== "Cancelled") {
+                  oauthSetting.setDesc("Error: " + msg);
+                  new import_obsidian.Notice("GitHub connection failed: " + msg);
+                }
+                btn.setButtonText("Connect GitHub").setDisabled(false);
+              }
+            })
+          );
+          oauthSetting.addButton(
+            (btn) => btn.setButtonText("Cancel").onClick(() => {
+              cancelled = true;
+              oauthSetting.setDesc("Cancelled.");
+              btn.setDisabled(true);
+            })
+          );
+        }
+      } else {
+        new import_obsidian.Setting(containerEl).setName("GitHub username").addText((t) => t.setPlaceholder("username").setValue(this.plugin.settings.githubUsername).onChange(async (v) => {
+          this.plugin.settings.githubUsername = v.trim();
+          await this.plugin.saveSettings();
+        }));
+        new import_obsidian.Setting(containerEl).setName("Personal Access Token").setDesc("PAT with read:user scope \u2014 github.com/settings/tokens").addText((t) => {
+          t.inputEl.type = "password";
+          t.setPlaceholder("ghp_\u2026").setValue(this.plugin.settings.githubToken).onChange(async (v) => {
+            this.plugin.settings.githubToken = v.trim();
+            await this.plugin.saveSettings();
+          });
         });
-      });
+      }
     }
     if (src === "local" || src === "both") {
       if (!isDesktop) {
@@ -927,6 +1051,7 @@ body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2
 .gh-stats-list-icon{font-size:10px;width:14px;text-align:center;flex-shrink:0}
 .gh-stats-list-val{font-weight:700;color:var(--interactive-accent);font-size:12px}
 .gh-stats-list-lbl{color:var(--text-muted);font-size:11px}
+.gh-oauth-code{display:inline-block;font-size:22px;font-weight:700;letter-spacing:4px;color:var(--interactive-accent);font-family:var(--font-monospace);margin:6px 0;padding:4px 8px;background:var(--background-secondary);border-radius:6px}
 .gh-repo-line{margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid var(--background-modifier-border)}
 .gh-repo-line-icon{font-size:10px;color:var(--text-faint)}
 .gh-repo-line-name{font-size:11px;color:var(--text-muted)}
