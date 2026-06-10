@@ -31,40 +31,215 @@ module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
 var VIEW_TYPE = "github-contributions";
 var GITHUB_GRAPHQL = "https://api.github.com/graphql";
+var MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 var DEFAULT_SETTINGS = {
   githubToken: "",
   githubUsername: "",
+  dataSource: "github",
+  localRepoRoot: "",
   sidebarSide: "right",
   selectedYear: new Date().getFullYear(),
+  sizePreset: "medium",
+  defaultView: "year",
   dailyNoteFolder: "",
   dailyNoteDateFormat: "YYYY-MM-DD"
 };
-async function fetchContributions(username, token, year) {
-  var _a, _b, _c, _d, _e;
+var PRESET_SIZES = {
+  "ultra-compact": { cell: 7, gap: 1 },
+  "compact": { cell: 9, gap: 1 },
+  "medium": { cell: 11, gap: 2 },
+  "large": { cell: 14, gap: 3 },
+  "fit": { cell: 0, gap: 2 }
+  // calculated at render time
+};
+async function fetchGitHubContributions(username, token, year) {
+  var _a, _b, _c, _d, _e, _f;
   const from = `${year}-01-01T00:00:00Z`;
   const to = `${year}-12-31T23:59:59Z`;
-  const query = `query($login:String!,$from:DateTime!,$to:DateTime!){user(login:$login){contributionsCollection(from:$from,to:$to){contributionCalendar{totalContributions weeks{contributionDays{date contributionCount}}}}}}`;
-  const response = await fetch(GITHUB_GRAPHQL, {
+  const query = `query($login:String!,$from:DateTime!,$to:DateTime!){user(login:$login){contributionsCollection(from:$from,to:$to){contributionCalendar{weeks{contributionDays{date contributionCount}}}}}}`;
+  const res = await fetch(GITHUB_GRAPHQL, {
     method: "POST",
     headers: { Authorization: `bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables: { login: username, from, to } })
   });
-  if (!response.ok)
-    throw new Error(`GitHub API error: ${response.status}`);
-  const json = await response.json();
+  if (!res.ok)
+    throw new Error(`GitHub API error: ${res.status}`);
+  const json = await res.json();
   if (json.errors)
     throw new Error((_b = (_a = json.errors[0]) == null ? void 0 : _a.message) != null ? _b : "GitHub API error");
-  const cal = (_e = (_d = (_c = json == null ? void 0 : json.data) == null ? void 0 : _c.user) == null ? void 0 : _d.contributionsCollection) == null ? void 0 : _e.contributionCalendar;
-  if (!cal)
-    throw new Error("No contribution data returned. Check username.");
-  return cal;
+  const weeks = (_f = (_e = (_d = (_c = json == null ? void 0 : json.data) == null ? void 0 : _c.user) == null ? void 0 : _d.contributionsCollection) == null ? void 0 : _e.contributionCalendar) == null ? void 0 : _f.weeks;
+  if (!weeks)
+    throw new Error("No data returned. Check your username.");
+  const map = /* @__PURE__ */ new Map();
+  for (const week of weeks) {
+    for (const day of week.contributionDays) {
+      map.set(day.date, day.contributionCount);
+    }
+  }
+  return map;
 }
-function calculateStreaks(weeks) {
-  const days = weeks.flatMap((w) => w.contributionDays).sort((a, b) => a.date.localeCompare(b.date));
+var { execSync } = window.require("child_process");
+function runGit(args, cwd) {
+  try {
+    return execSync(`git ${args}`, { cwd, timeout: 8e3, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+  } catch (e) {
+    return "";
+  }
+}
+async function discoverRepos(rootPath) {
+  const repos = [];
+  try {
+    const fs = window.require("fs");
+    const path = window.require("path");
+    const scanDir = (dir, depth) => {
+      if (depth > 2)
+        return;
+      let entries;
+      try {
+        entries = fs.readdirSync(dir);
+      } catch (e) {
+        return;
+      }
+      if (entries.includes(".git")) {
+        const name = path.basename(dir);
+        const lastCommitRaw = runGit(`log -1 --format=%ai`, dir).trim();
+        const lastCommit = lastCommitRaw ? lastCommitRaw.split(" ")[0] : null;
+        repos.push({ name, path: dir, lastCommit });
+        return;
+      }
+      for (const entry of entries) {
+        if (entry.startsWith("."))
+          continue;
+        const full = path.join(dir, entry);
+        try {
+          if (fs.statSync(full).isDirectory())
+            scanDir(full, depth + 1);
+        } catch (e) {
+        }
+      }
+    };
+    scanDir(rootPath, 0);
+  } catch (e) {
+    console.error("gh-contributions: repo discovery failed", e);
+  }
+  return repos;
+}
+function fetchLocalCommits(repo, year) {
+  var _a;
+  const map = /* @__PURE__ */ new Map();
+  const after = `${year}-01-01`;
+  const before = `${year}-12-31`;
+  const raw = runGit(
+    `log --after="${after}" --before="${before}" --format=%ad --date=format:%Y-%m-%d`,
+    repo.path
+  );
+  if (!raw)
+    return map;
+  for (const line of raw.split("\n")) {
+    const date = line.trim();
+    if (!date)
+      continue;
+    map.set(date, ((_a = map.get(date)) != null ? _a : 0) + 1);
+  }
+  return map;
+}
+async function buildDayMap(settings, year, repos) {
+  var _a;
+  const days = /* @__PURE__ */ new Map();
+  const getOrCreate = (date) => {
+    if (!days.has(date))
+      days.set(date, { date, count: 0, githubCount: 0, localCount: 0, repos: {} });
+    return days.get(date);
+  };
+  let totalGH = 0, totalLocal = 0;
+  if (settings.dataSource === "github" || settings.dataSource === "both") {
+    if (settings.githubToken && settings.githubUsername) {
+      const ghMap = await fetchGitHubContributions(settings.githubUsername, settings.githubToken, year);
+      for (const [date, count] of ghMap) {
+        const d = getOrCreate(date);
+        d.githubCount = count;
+        d.count += count;
+        totalGH += count;
+      }
+    }
+  }
+  if (settings.dataSource === "local" || settings.dataSource === "both") {
+    for (const repo of repos) {
+      const commits = fetchLocalCommits(repo, year);
+      for (const [date, count] of commits) {
+        const d = getOrCreate(date);
+        d.localCount += count;
+        d.count += count;
+        d.repos[repo.name] = ((_a = d.repos[repo.name]) != null ? _a : 0) + count;
+        totalLocal += count;
+      }
+    }
+  }
+  return { days, totalGH, totalLocal, repoList: repos };
+}
+function buildYearWeeks(year, days) {
+  var _a;
+  const jan1 = new Date(year, 0, 1);
+  const startOffset = jan1.getDay();
+  const weeks = [];
+  let week = [];
+  for (let i = 0; i < startOffset; i++)
+    week.push({ date: "", count: 0, githubCount: 0, localCount: 0, repos: {} });
+  const isLeap = year % 4 === 0 && year % 100 !== 0 || year % 400 === 0;
+  const daysInYear = isLeap ? 366 : 365;
+  for (let i = 0; i < daysInYear; i++) {
+    const d = new Date(year, 0, i + 1);
+    const dateStr = `${year}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    week.push((_a = days.get(dateStr)) != null ? _a : { date: dateStr, count: 0, githubCount: 0, localCount: 0, repos: {} });
+    if (week.length === 7) {
+      weeks.push(week);
+      week = [];
+    }
+  }
+  if (week.length > 0) {
+    while (week.length < 7)
+      week.push({ date: "", count: 0, githubCount: 0, localCount: 0, repos: {} });
+    weeks.push(week);
+  }
+  return weeks;
+}
+function buildMonthDays(year, month, days) {
+  var _a;
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const weeks = [];
+  let week = [];
+  for (let i = 0; i < firstDay; i++)
+    week.push({ date: "", count: 0, githubCount: 0, localCount: 0, repos: {} });
+  for (let i = 1; i <= daysInMonth; i++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(i).padStart(2, "0")}`;
+    week.push((_a = days.get(dateStr)) != null ? _a : { date: dateStr, count: 0, githubCount: 0, localCount: 0, repos: {} });
+    if (week.length === 7) {
+      weeks.push(week);
+      week = [];
+    }
+  }
+  if (week.length > 0) {
+    while (week.length < 7)
+      week.push({ date: "", count: 0, githubCount: 0, localCount: 0, repos: {} });
+    weeks.push(week);
+  }
+  return weeks;
+}
+function calculateStreaks(days, year) {
+  var _a, _b, _c, _d, _e, _f;
+  const isLeap = year % 4 === 0 && year % 100 !== 0 || year % 400 === 0;
+  const daysInYear = isLeap ? 366 : 365;
   const today = (0, import_obsidian.moment)().format("YYYY-MM-DD");
+  const allDates = [];
+  for (let i = 0; i < daysInYear; i++) {
+    const d = new Date(year, 0, i + 1);
+    allDates.push(`${year}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+  }
   let longest = 0, run = 0;
-  for (const d of days) {
-    if (d.contributionCount > 0) {
+  for (const date of allDates) {
+    const count = (_b = (_a = days.get(date)) == null ? void 0 : _a.count) != null ? _b : 0;
+    if (count > 0) {
       run++;
       if (run > longest)
         longest = run;
@@ -72,26 +247,50 @@ function calculateStreaks(weeks) {
       run = 0;
   }
   let current = 0;
-  const pastDays = days.filter((d) => d.date <= today).reverse();
-  let skipFirst = pastDays.length > 0 && pastDays[0].contributionCount === 0;
-  for (const d of pastDays) {
+  const past = allDates.filter((d) => d <= today).reverse();
+  let skipFirst = past.length > 0 && ((_d = (_c = days.get(past[0])) == null ? void 0 : _c.count) != null ? _d : 0) === 0;
+  for (const date of past) {
     if (skipFirst) {
       skipFirst = false;
       continue;
     }
-    if (d.contributionCount > 0)
+    if (((_f = (_e = days.get(date)) == null ? void 0 : _e.count) != null ? _f : 0) > 0)
       current++;
     else
       break;
   }
   return { current, longest };
 }
+function daysSinceLastCommit(days) {
+  const today = (0, import_obsidian.moment)().format("YYYY-MM-DD");
+  const sorted = [...days.entries()].filter(([d]) => d <= today && d !== "").sort((a, b) => b[0].localeCompare(a[0]));
+  for (const [date, data] of sorted) {
+    if (data.count > 0) {
+      return (0, import_obsidian.moment)(today).diff((0, import_obsidian.moment)(date), "days");
+    }
+  }
+  return null;
+}
+function mostRecentRepo(repos) {
+  var _a, _b;
+  if (!repos.length)
+    return null;
+  const sorted = [...repos].filter((r) => r.lastCommit).sort((a, b) => {
+    var _a2, _b2;
+    return ((_a2 = b.lastCommit) != null ? _a2 : "").localeCompare((_b2 = a.lastCommit) != null ? _b2 : "");
+  });
+  return (_b = (_a = sorted[0]) == null ? void 0 : _a.name) != null ? _b : null;
+}
 var ContributionsView = class extends import_obsidian.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.tooltipEl = null;
+    this.resizeObserver = null;
+    this.panelWidth = 0;
     this.plugin = plugin;
     this.displayYear = plugin.settings.selectedYear;
+    this.displayMonth = new Date().getMonth();
+    this.viewMode = plugin.settings.defaultView;
   }
   getViewType() {
     return VIEW_TYPE;
@@ -103,16 +302,39 @@ var ContributionsView = class extends import_obsidian.ItemView {
     return "github";
   }
   async onOpen() {
+    this.resizeObserver = new ResizeObserver(() => {
+      const w = this.containerEl.clientWidth;
+      if (Math.abs(w - this.panelWidth) > 5) {
+        this.panelWidth = w;
+        if (this.plugin.settings.sizePreset === "fit")
+          this.render();
+      }
+    });
+    this.resizeObserver.observe(this.containerEl);
+    this.panelWidth = this.containerEl.clientWidth;
     await this.render();
   }
   async onClose() {
-    var _a;
+    var _a, _b;
     (_a = this.tooltipEl) == null ? void 0 : _a.remove();
     this.tooltipEl = null;
+    (_b = this.resizeObserver) == null ? void 0 : _b.disconnect();
   }
   async refresh() {
     this.displayYear = this.plugin.settings.selectedYear;
+    this.viewMode = this.plugin.settings.defaultView;
     await this.render();
+  }
+  getCellSize() {
+    const preset = this.plugin.settings.sizePreset;
+    if (preset !== "fit")
+      return PRESET_SIZES[preset];
+    const cols = this.viewMode === "year" ? 53 : 7;
+    const padding = 20;
+    const gap = 2;
+    const available = (this.panelWidth || 240) - padding;
+    const cell = Math.max(5, Math.floor((available - gap * (cols - 1)) / cols));
+    return { cell, gap };
   }
   async render() {
     const container = this.containerEl.children[1];
@@ -121,28 +343,248 @@ var ContributionsView = class extends import_obsidian.ItemView {
     if (!this.tooltipEl) {
       this.tooltipEl = document.body.createDiv({ cls: "gh-tooltip" });
     }
-    if (!this.plugin.settings.githubToken || !this.plugin.settings.githubUsername) {
-      this.renderEmpty(container);
+    const s = this.plugin.settings;
+    const needsGH = s.dataSource === "github" || s.dataSource === "both";
+    const needsLocal = s.dataSource === "local" || s.dataSource === "both";
+    if (needsGH && (!s.githubToken || !s.githubUsername)) {
+      this.renderEmpty(container, "github");
+      return;
+    }
+    if (needsLocal && !s.localRepoRoot) {
+      this.renderEmpty(container, "local");
       return;
     }
     this.renderSkeleton(container);
     try {
-      const data = await fetchContributions(
-        this.plugin.settings.githubUsername,
-        this.plugin.settings.githubToken,
-        this.displayYear
-      );
+      let repos = [];
+      if (needsLocal && s.localRepoRoot) {
+        repos = await discoverRepos(s.localRepoRoot);
+      }
+      const { days, totalGH, totalLocal } = await buildDayMap(s, this.displayYear, repos);
       container.empty();
-      this.renderGraph(container, data);
+      const streaks = calculateStreaks(days, this.displayYear);
+      const sinceCommit = daysSinceLastCommit(days);
+      const recentRepo = mostRecentRepo(repos);
+      this.renderHeader(container);
+      this.renderStats(container, { totalGH, totalLocal, streaks, sinceCommit, recentRepo });
+      if (this.viewMode === "year") {
+        const weeks = buildYearWeeks(this.displayYear, days);
+        this.renderYearGrid(container, weeks);
+      } else {
+        const weeks = buildMonthDays(this.displayYear, this.displayMonth, days);
+        this.renderMonthGrid(container, weeks);
+      }
+      this.renderLegend(container);
+      this.renderFooter(container);
     } catch (e) {
       container.empty();
       this.renderError(container, e.message);
     }
   }
-  renderEmpty(container) {
+  renderHeader(container) {
+    const s = this.plugin.settings;
+    const header = container.createDiv({ cls: "gh-header" });
+    const left = header.createDiv({ cls: "gh-header-left" });
+    if (s.githubUsername)
+      left.createEl("span", { cls: "gh-username", text: s.githubUsername });
+    const viewToggle = left.createDiv({ cls: "gh-view-toggle" });
+    const yearBtn = viewToggle.createEl("button", { cls: "gh-toggle-btn", text: "Year" });
+    const monthBtn = viewToggle.createEl("button", { cls: "gh-toggle-btn", text: "Month" });
+    if (this.viewMode === "year")
+      yearBtn.addClass("gh-toggle-btn--active");
+    else
+      monthBtn.addClass("gh-toggle-btn--active");
+    yearBtn.onclick = async () => {
+      this.viewMode = "year";
+      await this.render();
+    };
+    monthBtn.onclick = async () => {
+      this.viewMode = "month";
+      await this.render();
+    };
+    const nav = header.createDiv({ cls: "gh-nav" });
+    const currentYear = new Date().getFullYear();
+    if (this.viewMode === "year") {
+      const prev = nav.createEl("button", { cls: "gh-nav-btn", text: "\u2039" });
+      nav.createEl("span", { cls: "gh-nav-label", text: String(this.displayYear) });
+      const next = nav.createEl("button", { cls: "gh-nav-btn", text: "\u203A" });
+      next.disabled = this.displayYear >= currentYear;
+      prev.onclick = async () => {
+        this.displayYear--;
+        await this.render();
+      };
+      next.onclick = async () => {
+        if (this.displayYear < currentYear) {
+          this.displayYear++;
+          await this.render();
+        }
+      };
+    } else {
+      const prev = nav.createEl("button", { cls: "gh-nav-btn", text: "\u2039" });
+      nav.createEl("span", { cls: "gh-nav-label", text: `${MONTHS_SHORT[this.displayMonth]} ${this.displayYear}` });
+      const next = nav.createEl("button", { cls: "gh-nav-btn", text: "\u203A" });
+      const isLatest = this.displayYear >= currentYear && this.displayMonth >= new Date().getMonth();
+      next.disabled = isLatest;
+      prev.onclick = async () => {
+        if (this.displayMonth === 0) {
+          this.displayMonth = 11;
+          this.displayYear--;
+        } else
+          this.displayMonth--;
+        await this.render();
+      };
+      next.onclick = async () => {
+        if (isLatest)
+          return;
+        if (this.displayMonth === 11) {
+          this.displayMonth = 0;
+          this.displayYear++;
+        } else
+          this.displayMonth++;
+        await this.render();
+      };
+    }
+  }
+  renderStats(container, info) {
+    const s = this.plugin.settings;
+    const stats = container.createDiv({ cls: "gh-stats" });
+    const total = info.totalGH + info.totalLocal;
+    this.pill(stats, String(total), "contributions");
+    this.pill(stats, info.streaks.current + "d", "streak");
+    this.pill(stats, info.streaks.longest + "d", "best");
+    if ((s.dataSource === "local" || s.dataSource === "both") && info.sinceCommit !== null) {
+      this.pill(stats, String(info.sinceCommit) + "d", "since commit");
+    }
+    if (info.recentRepo) {
+      const pill = stats.createDiv({ cls: "gh-stat gh-stat--wide" });
+      pill.createEl("span", { cls: "gh-stat-val", text: info.recentRepo });
+      pill.createEl("span", { cls: "gh-stat-lbl", text: "recent repo" });
+    }
+  }
+  pill(parent, value, label) {
+    const p = parent.createDiv({ cls: "gh-stat" });
+    p.createEl("span", { cls: "gh-stat-val", text: value });
+    p.createEl("span", { cls: "gh-stat-lbl", text: label });
+  }
+  renderYearGrid(container, weeks) {
+    const { cell, gap } = this.getCellSize();
+    const graphWrap = container.createDiv({ cls: "gh-graph-wrap" });
+    graphWrap.style.overflowX = "auto";
+    const monthRow = graphWrap.createDiv({ cls: "gh-month-row" });
+    monthRow.style.cssText = `display:grid;grid-template-columns:repeat(${weeks.length},${cell}px);gap:${gap}px;margin-bottom:3px`;
+    let lastMonth = -1;
+    weeks.forEach((week, wi) => {
+      const first = week.find((d) => d.date);
+      if (!first)
+        return;
+      const m = new Date(first.date).getUTCMonth();
+      if (m !== lastMonth) {
+        lastMonth = m;
+        const lbl = monthRow.createEl("span", { cls: "gh-month-lbl", text: MONTHS_SHORT[m] });
+        lbl.style.gridColumn = String(wi + 1);
+        lbl.style.fontSize = Math.max(8, cell - 2) + "px";
+      }
+    });
+    const grid = graphWrap.createDiv({ cls: "gh-grid" });
+    grid.style.cssText = `display:flex;gap:${gap}px`;
+    weeks.forEach((week) => {
+      const col = grid.createDiv({ cls: "gh-col" });
+      col.style.cssText = `display:flex;flex-direction:column;gap:${gap}px`;
+      week.forEach((day) => this.renderCell(col, day, cell));
+    });
+  }
+  renderMonthGrid(container, weeks) {
+    const { cell, gap } = this.getCellSize();
+    const graphWrap = container.createDiv({ cls: "gh-graph-wrap" });
+    const dowRow = graphWrap.createDiv({ cls: "gh-dow-row" });
+    dowRow.style.cssText = `display:grid;grid-template-columns:repeat(7,${cell}px);gap:${gap}px;margin-bottom:3px`;
+    ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].forEach((d) => {
+      const lbl = dowRow.createEl("span", { cls: "gh-month-lbl", text: d });
+      lbl.style.fontSize = Math.max(8, cell - 2) + "px";
+      lbl.style.textAlign = "center";
+    });
+    const grid = graphWrap.createDiv({ cls: "gh-month-grid" });
+    grid.style.cssText = `display:flex;flex-direction:column;gap:${gap}px`;
+    weeks.forEach((week) => {
+      const row = grid.createDiv({ cls: "gh-month-row-cells" });
+      row.style.cssText = `display:flex;gap:${gap}px`;
+      week.forEach((day) => this.renderCell(row, day, cell));
+    });
+  }
+  renderCell(parent, day, size) {
+    const cell = parent.createDiv({ cls: "gh-cell" });
+    cell.style.cssText = `width:${size}px;height:${size}px`;
+    if (!day.date) {
+      cell.addClass("gh-cell--empty");
+      return;
+    }
+    const today = (0, import_obsidian.moment)().format("YYYY-MM-DD");
+    cell.dataset.level = String(countToLevel(day.count));
+    if (day.date === today)
+      cell.addClass("gh-today");
+    cell.addEventListener("mouseenter", (e) => this.showTooltip(e, day));
+    cell.addEventListener("mouseleave", () => {
+      if (this.tooltipEl)
+        this.tooltipEl.style.display = "none";
+    });
+    cell.addEventListener("click", () => this.openOrCreateDailyNote(day.date));
+  }
+  showTooltip(e, day) {
+    if (!this.tooltipEl)
+      return;
+    const s = this.plugin.settings;
+    const dateStr = (0, import_obsidian.moment)(day.date).format("YYYY-MM-DD");
+    const lines = [dateStr];
+    if (day.count === 0) {
+      lines.push("No contributions");
+    } else {
+      lines.push(`${day.count} contribution${day.count !== 1 ? "s" : ""}`);
+      if (s.dataSource === "both") {
+        if (day.githubCount > 0)
+          lines.push(`  GitHub: ${day.githubCount}`);
+        if (day.localCount > 0)
+          lines.push(`  Local: ${day.localCount}`);
+      }
+      const repoEntries = Object.entries(day.repos).sort((a, b) => b[1] - a[1]);
+      for (const [repo, count] of repoEntries) {
+        lines.push(`  ${repo} (${count})`);
+      }
+    }
+    this.tooltipEl.empty();
+    lines.forEach((line, i) => {
+      if (i > 0)
+        this.tooltipEl.createEl("br");
+      if (i === 0) {
+        this.tooltipEl.createEl("strong", { text: line });
+      } else {
+        this.tooltipEl.appendText(line);
+      }
+    });
+    this.tooltipEl.style.display = "block";
+    this.tooltipEl.style.left = e.pageX + 12 + "px";
+    this.tooltipEl.style.top = e.pageY - 34 + "px";
+  }
+  renderLegend(container) {
+    const { cell, gap } = this.getCellSize();
+    const legend = container.createDiv({ cls: "gh-legend" });
+    legend.createEl("span", { cls: "gh-legend-lbl", text: "Less" });
+    for (let i = 0; i <= 4; i++) {
+      const sq = legend.createDiv({ cls: "gh-cell gh-legend-cell" });
+      sq.dataset.level = String(i);
+      sq.style.cssText = `width:${cell}px;height:${cell}px`;
+    }
+    legend.createEl("span", { cls: "gh-legend-lbl", text: "More" });
+  }
+  renderFooter(container) {
+    const footer = container.createDiv({ cls: "gh-footer" });
+    const rb = footer.createEl("button", { cls: "gh-refresh-btn", text: "\u21BB Refresh" });
+    rb.onclick = () => this.render();
+  }
+  renderEmpty(container, missing) {
     const wrap = container.createDiv({ cls: "gh-empty" });
     wrap.createEl("div", { cls: "gh-empty-icon", text: "\u{1F419}" });
-    wrap.createEl("p", { text: "Add your GitHub username and a Personal Access Token in Settings to see your contribution graph." });
+    const msg = missing === "github" ? "Add your GitHub username and Personal Access Token in Settings." : "Set a local repo root folder in Settings to scan for git commits.";
+    wrap.createEl("p", { text: msg });
     const btn = wrap.createEl("button", { cls: "gh-btn", text: "Open Settings" });
     btn.onclick = () => {
       this.app.setting.open();
@@ -154,114 +596,28 @@ var ContributionsView = class extends import_obsidian.ItemView {
     wrap.createDiv({ cls: "gh-skeleton gh-skeleton-header" });
     wrap.createDiv({ cls: "gh-skeleton gh-skeleton-stats" });
     const grid = wrap.createDiv({ cls: "gh-skeleton-grid" });
-    for (let i = 0; i < 53 * 7; i++) {
+    const cols = this.viewMode === "year" ? 53 : 7;
+    const rows = this.viewMode === "year" ? 7 : 6;
+    const { cell, gap } = this.getCellSize();
+    grid.style.cssText = `display:grid;grid-template-columns:repeat(${cols},${cell}px);grid-template-rows:repeat(${rows},${cell}px);gap:${gap}px`;
+    for (let i = 0; i < cols * rows; i++)
       grid.createDiv({ cls: "gh-skeleton gh-skeleton-cell" });
-    }
   }
-  renderGraph(container, data) {
-    const s = this.plugin.settings;
-    const streaks = calculateStreaks(data.weeks);
-    const currentYear = new Date().getFullYear();
-    const header = container.createDiv({ cls: "gh-header" });
-    header.createEl("span", { cls: "gh-username", text: s.githubUsername });
-    const yearWrap = header.createDiv({ cls: "gh-year-wrap" });
-    const prevBtn = yearWrap.createEl("button", { cls: "gh-year-btn", text: "\u2039" });
-    yearWrap.createEl("span", { cls: "gh-year-label", text: String(this.displayYear) });
-    const nextBtn = yearWrap.createEl("button", { cls: "gh-year-btn", text: "\u203A" });
-    nextBtn.disabled = this.displayYear >= currentYear;
-    prevBtn.onclick = async () => {
-      this.displayYear--;
-      await this.render();
-    };
-    nextBtn.onclick = async () => {
-      if (this.displayYear < currentYear) {
-        this.displayYear++;
-        await this.render();
-      }
-    };
-    const stats = container.createDiv({ cls: "gh-stats" });
-    this.pill(stats, String(data.totalContributions), "contributions");
-    this.pill(stats, streaks.current + "d", "streak");
-    this.pill(stats, streaks.longest + "d", "best streak");
-    const graphWrap = container.createDiv({ cls: "gh-graph-wrap" });
-    const monthRow = graphWrap.createDiv({ cls: "gh-month-row" });
-    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    let lastMonth = -1;
-    data.weeks.forEach((week, wi) => {
-      const first = week.contributionDays[0];
-      if (!first)
-        return;
-      const m = new Date(first.date).getUTCMonth();
-      if (m !== lastMonth) {
-        lastMonth = m;
-        const lbl = monthRow.createEl("span", { cls: "gh-month-lbl", text: MONTHS[m] });
-        lbl.style.gridColumn = String(wi + 1);
-      }
-    });
-    const grid = graphWrap.createDiv({ cls: "gh-grid" });
-    const today = (0, import_obsidian.moment)().format("YYYY-MM-DD");
-    data.weeks.forEach((week) => {
-      const col = grid.createDiv({ cls: "gh-col" });
-      week.contributionDays.forEach((day) => {
-        const cell = col.createDiv({ cls: "gh-cell" });
-        cell.dataset.level = String(this.countToLevel(day.contributionCount));
-        if (day.date === today)
-          cell.addClass("gh-today");
-        cell.addEventListener("mouseenter", (e) => this.showTip(e, day));
-        cell.addEventListener("mouseleave", () => {
-          if (this.tooltipEl)
-            this.tooltipEl.style.display = "none";
-        });
-        cell.addEventListener("click", () => this.openOrCreateDailyNote(day.date));
-      });
-    });
-    const legend = container.createDiv({ cls: "gh-legend" });
-    legend.createEl("span", { cls: "gh-legend-lbl", text: "Less" });
-    for (let i = 0; i <= 4; i++) {
-      const sq = legend.createDiv({ cls: "gh-cell gh-legend-cell" });
-      sq.dataset.level = String(i);
-    }
-    legend.createEl("span", { cls: "gh-legend-lbl", text: "More" });
-    const footer = container.createDiv({ cls: "gh-footer" });
-    const rb = footer.createEl("button", { cls: "gh-refresh-btn", text: "\u21BB Refresh" });
-    rb.onclick = () => this.render();
-  }
-  pill(parent, value, label) {
-    const p = parent.createDiv({ cls: "gh-stat" });
-    p.createEl("span", { cls: "gh-stat-val", text: value });
-    p.createEl("span", { cls: "gh-stat-lbl", text: label });
-  }
-  countToLevel(n) {
-    if (n === 0)
-      return 0;
-    if (n <= 2)
-      return 1;
-    if (n <= 5)
-      return 2;
-    if (n <= 9)
-      return 3;
-    return 4;
-  }
-  showTip(e, day) {
-    if (!this.tooltipEl)
-      return;
-    const d = (0, import_obsidian.moment)(day.date).format("MMM D, YYYY");
-    const c = day.contributionCount;
-    this.tooltipEl.textContent = c === 0 ? `No contributions on ${d}` : `${c} contribution${c !== 1 ? "s" : ""} on ${d}`;
-    this.tooltipEl.style.display = "block";
-    this.tooltipEl.style.left = e.pageX + 12 + "px";
-    this.tooltipEl.style.top = e.pageY - 34 + "px";
+  renderError(container, msg) {
+    container.createDiv({ cls: "gh-error", text: `\u26A0 ${msg}` });
+    const btn = container.createDiv({ cls: "gh-footer" }).createEl("button", { cls: "gh-refresh-btn", text: "\u21BB Retry" });
+    btn.onclick = () => this.render();
   }
   async openOrCreateDailyNote(date) {
     const s = this.plugin.settings;
     const fmt = s.dailyNoteDateFormat || "YYYY-MM-DD";
     const folder = s.dailyNoteFolder ? s.dailyNoteFolder.replace(/\/$/, "") + "/" : "";
     const name = (0, import_obsidian.moment)(date).format(fmt);
-    const path = `${folder}${name}.md`;
-    let file = this.app.vault.getAbstractFileByPath(path);
+    const filePath = `${folder}${name}.md`;
+    let file = this.app.vault.getAbstractFileByPath(filePath);
     if (!file) {
       try {
-        file = await this.app.vault.create(path, `# ${name}
+        file = await this.app.vault.create(filePath, `# ${name}
 
 `);
         new import_obsidian.Notice(`Created: ${name}`);
@@ -272,12 +628,18 @@ var ContributionsView = class extends import_obsidian.ItemView {
     }
     await this.app.workspace.getLeaf(false).openFile(file);
   }
-  renderError(container, msg) {
-    container.createDiv({ cls: "gh-error", text: `\u26A0 ${msg}` });
-    const btn = container.createDiv({ cls: "gh-footer" }).createEl("button", { cls: "gh-refresh-btn", text: "\u21BB Retry" });
-    btn.onclick = () => this.render();
-  }
 };
+function countToLevel(n) {
+  if (n === 0)
+    return 0;
+  if (n <= 2)
+    return 1;
+  if (n <= 5)
+    return 2;
+  if (n <= 9)
+    return 3;
+  return 4;
+}
 var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
@@ -287,22 +649,48 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "GitHub Contributions" });
-    new import_obsidian.Setting(containerEl).setName("GitHub username").setDesc("Your GitHub username (e.g. torvalds)").addText((t) => t.setPlaceholder("username").setValue(this.plugin.settings.githubUsername).onChange(async (v) => {
-      this.plugin.settings.githubUsername = v.trim();
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian.Setting(containerEl).setName("Personal Access Token").setDesc("A GitHub PAT with read:user scope. Generate at github.com/settings/tokens").addText((t) => {
-      t.inputEl.type = "password";
-      t.setPlaceholder("ghp_\u2026").setValue(this.plugin.settings.githubToken).onChange(async (v) => {
-        this.plugin.settings.githubToken = v.trim();
+    containerEl.createEl("h3", { text: "Data Sources" });
+    new import_obsidian.Setting(containerEl).setName("Source").setDesc("Which contributions to display").addDropdown(
+      (d) => d.addOption("github", "GitHub only").addOption("local", "Local git only").addOption("both", "Both").setValue(this.plugin.settings.dataSource).onChange(async (v) => {
+        this.plugin.settings.dataSource = v;
         await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+    const src = this.plugin.settings.dataSource;
+    if (src === "github" || src === "both") {
+      new import_obsidian.Setting(containerEl).setName("GitHub username").addText((t) => t.setPlaceholder("username").setValue(this.plugin.settings.githubUsername).onChange(async (v) => {
+        this.plugin.settings.githubUsername = v.trim();
+        await this.plugin.saveSettings();
+      }));
+      new import_obsidian.Setting(containerEl).setName("Personal Access Token").setDesc("PAT with read:user scope \u2014 github.com/settings/tokens").addText((t) => {
+        t.inputEl.type = "password";
+        t.setPlaceholder("ghp_\u2026").setValue(this.plugin.settings.githubToken).onChange(async (v) => {
+          this.plugin.settings.githubToken = v.trim();
+          await this.plugin.saveSettings();
+        });
       });
-    });
-    new import_obsidian.Setting(containerEl).setName("Sidebar side").setDesc("Which sidebar the panel opens in").addDropdown((d) => d.addOption("left", "Left").addOption("right", "Right").setValue(this.plugin.settings.sidebarSide).onChange(async (v) => {
+    }
+    if (src === "local" || src === "both") {
+      new import_obsidian.Setting(containerEl).setName("Local repo root").setDesc("Folder to scan for git repositories (searches 2 levels deep)").addText((t) => t.setPlaceholder("C:\\Users\\Peter\\Projects").setValue(this.plugin.settings.localRepoRoot).onChange(async (v) => {
+        this.plugin.settings.localRepoRoot = v.trim();
+        await this.plugin.saveSettings();
+      }));
+    }
+    containerEl.createEl("h3", { text: "Display" });
+    new import_obsidian.Setting(containerEl).setName("Sidebar side").addDropdown((d) => d.addOption("left", "Left").addOption("right", "Right").setValue(this.plugin.settings.sidebarSide).onChange(async (v) => {
       this.plugin.settings.sidebarSide = v;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("Default year").setDesc("Year shown when first opening the panel").addText((t) => t.setPlaceholder(String(new Date().getFullYear())).setValue(String(this.plugin.settings.selectedYear)).onChange(async (v) => {
+    new import_obsidian.Setting(containerEl).setName("Size").setDesc('Cell size. "Fit to sidebar" auto-sizes to fill the panel width.').addDropdown((d) => d.addOption("ultra-compact", "Ultra compact").addOption("compact", "Compact").addOption("medium", "Medium").addOption("large", "Large").addOption("fit", "Fit to sidebar").setValue(this.plugin.settings.sizePreset).onChange(async (v) => {
+      this.plugin.settings.sizePreset = v;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Default view").addDropdown((d) => d.addOption("year", "Year").addOption("month", "Month").setValue(this.plugin.settings.defaultView).onChange(async (v) => {
+      this.plugin.settings.defaultView = v;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Default year").addText((t) => t.setPlaceholder(String(new Date().getFullYear())).setValue(String(this.plugin.settings.selectedYear)).onChange(async (v) => {
       const y = parseInt(v);
       if (!isNaN(y) && y >= 2008 && y <= new Date().getFullYear()) {
         this.plugin.settings.selectedYear = y;
@@ -314,7 +702,7 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
       this.plugin.settings.dailyNoteFolder = v;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("Date format").setDesc("Moment.js format for daily note filenames. Default: YYYY-MM-DD").addText((t) => t.setPlaceholder("YYYY-MM-DD").setValue(this.plugin.settings.dailyNoteDateFormat).onChange(async (v) => {
+    new import_obsidian.Setting(containerEl).setName("Date format").setDesc("Moment.js format for filenames. Default: YYYY-MM-DD").addText((t) => t.setPlaceholder("YYYY-MM-DD").setValue(this.plugin.settings.dailyNoteDateFormat).onChange(async (v) => {
       this.plugin.settings.dailyNoteDateFormat = v;
       await this.plugin.saveSettings();
     }));
@@ -330,11 +718,7 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
     this.addSettingTab(new GitHubContributionsSettingTab(this.app, this));
     this.registerView(VIEW_TYPE, (leaf) => new ContributionsView(leaf, this));
     this.addRibbonIcon("github", "GitHub Contributions", () => this.activateView());
-    this.addCommand({
-      id: "open-github-contributions",
-      name: "Open GitHub Contributions panel",
-      callback: () => this.activateView()
-    });
+    this.addCommand({ id: "open-github-contributions", name: "Open GitHub Contributions panel", callback: () => this.activateView() });
     this.injectStyles();
   }
   onunload() {
@@ -374,24 +758,29 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
     style.id = "gh-contributions-styles";
     style.textContent = `
 .gh-contributions-view{padding:12px 10px 16px;overflow-y:auto;overflow-x:hidden;user-select:none}
-.gh-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.gh-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;gap:6px}
+.gh-header-left{display:flex;flex-direction:column;gap:4px;min-width:0}
 .gh-username{font-size:13px;font-weight:600;color:var(--text-normal);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.gh-year-wrap{display:flex;align-items:center;gap:4px;flex-shrink:0}
-.gh-year-label{font-size:12px;color:var(--text-muted);min-width:34px;text-align:center}
-.gh-year-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:14px;line-height:1;padding:1px 6px;transition:background 0.15s}
-.gh-year-btn:hover:not(:disabled){background:var(--background-modifier-hover);color:var(--text-normal)}
-.gh-year-btn:disabled{opacity:.3;cursor:default}
-.gh-stats{display:flex;gap:6px;margin-bottom:10px}
-.gh-stat{display:flex;flex-direction:column;align-items:center;background:var(--background-secondary);border-radius:6px;padding:5px 8px;flex:1}
-.gh-stat-val{font-size:14px;font-weight:700;color:var(--interactive-accent);line-height:1.2}
+.gh-view-toggle{display:flex;gap:2px}
+.gh-toggle-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:11px;padding:2px 7px;transition:background .15s}
+.gh-toggle-btn:hover{background:var(--background-modifier-hover);color:var(--text-normal)}
+.gh-toggle-btn--active{background:var(--interactive-accent)!important;color:var(--text-on-accent)!important;border-color:var(--interactive-accent)!important}
+.gh-nav{display:flex;align-items:center;gap:3px;flex-shrink:0}
+.gh-nav-label{font-size:12px;color:var(--text-muted);min-width:52px;text-align:center;white-space:nowrap}
+.gh-nav-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:14px;line-height:1;padding:1px 6px;transition:background .15s}
+.gh-nav-btn:hover:not(:disabled){background:var(--background-modifier-hover);color:var(--text-normal)}
+.gh-nav-btn:disabled{opacity:.3;cursor:default}
+.gh-stats{display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap}
+.gh-stat{display:flex;flex-direction:column;align-items:center;background:var(--background-secondary);border-radius:6px;padding:5px 7px;flex:1;min-width:0}
+.gh-stat--wide{flex:2 1 auto;max-width:100%}
+.gh-stat-val{font-size:13px;font-weight:700;color:var(--interactive-accent);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .gh-stat-lbl{font-size:9px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;text-align:center}
 .gh-graph-wrap{overflow-x:auto;padding-bottom:4px}
-.gh-month-row{display:grid;grid-template-columns:repeat(53,11px);gap:2px;margin-bottom:3px}
 .gh-month-lbl{font-size:9px;color:var(--text-faint)}
-.gh-grid{display:flex;gap:2px}
-.gh-col{display:flex;flex-direction:column;gap:2px}
-.gh-cell{width:11px;height:11px;border-radius:2px;cursor:pointer;transition:transform .1s,outline .1s;flex-shrink:0}
-.gh-cell:hover{transform:scale(1.3)}
+.gh-cell{border-radius:2px;cursor:pointer;transition:transform .1s;flex-shrink:0;box-sizing:border-box}
+.gh-cell:hover{transform:scale(1.3);z-index:1;position:relative}
+.gh-cell--empty{background:transparent!important;cursor:default!important}
+.gh-cell--empty:hover{transform:none!important}
 .gh-today{outline:2px solid var(--interactive-accent)!important;outline-offset:1px}
 .gh-cell[data-level="0"]{background:var(--background-modifier-border)}
 .gh-cell[data-level="1"]{background:#0e4429}
@@ -405,7 +794,7 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
 .theme-light .gh-cell[data-level="4"]{background:#216e39}
 .gh-legend{display:flex;align-items:center;gap:3px;margin-top:8px;justify-content:flex-end}
 .gh-legend-lbl{font-size:9px;color:var(--text-faint)}
-.gh-legend-cell{cursor:default!important;width:10px;height:10px}
+.gh-legend-cell{cursor:default!important}
 .gh-legend-cell:hover{transform:none!important}
 .gh-footer{display:flex;justify-content:flex-end;margin-top:10px}
 .gh-refresh-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:11px;padding:3px 8px;transition:background .15s}
@@ -419,12 +808,12 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
 .gh-skeleton-wrap{padding:4px 0}
 .gh-skeleton-header{height:14px;width:55%;margin-bottom:10px;border-radius:4px}
 .gh-skeleton-stats{height:44px;width:100%;margin-bottom:10px;border-radius:6px}
-.gh-skeleton-grid{display:grid;grid-template-columns:repeat(53,11px);grid-template-rows:repeat(7,11px);gap:2px}
-.gh-skeleton-cell{width:11px;height:11px;border-radius:2px}
+.gh-skeleton-cell{border-radius:2px}
 .gh-skeleton{animation:gh-shimmer 1.4s infinite linear;background:linear-gradient(90deg,var(--background-modifier-border) 25%,var(--background-secondary) 50%,var(--background-modifier-border) 75%);background-size:200% 100%}
 @keyframes gh-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.gh-tooltip{position:fixed;background:#1a1a1a;color:#fff;border-radius:5px;padding:5px 9px;font-size:11px;pointer-events:none;display:none;z-index:9999;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3)}
-.theme-light .gh-tooltip{background:#333}
+.gh-tooltip{position:fixed;background:#1a1a1a;color:#eee;border-radius:6px;padding:7px 10px;font-size:11px;line-height:1.6;pointer-events:none;display:none;z-index:9999;white-space:pre;box-shadow:0 2px 10px rgba(0,0,0,.35);font-family:var(--font-monospace)}
+.gh-tooltip strong{color:#fff;display:block;margin-bottom:2px;font-family:var(--font-interface)}
+.theme-light .gh-tooltip{background:#222}
     `;
     document.head.appendChild(style);
   }
