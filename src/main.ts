@@ -458,6 +458,13 @@ export class ContributionsView extends ItemView {
       this.renderHeader(container);
       this.renderStats(container, { totalGH, totalLocal, streaks, sinceCommit, recentRepo });
 
+      // Repo name line (default style only — compact shows it inline)
+      const style = this.plugin.settings.statsStyle ?? "default";
+      if (recentRepo && style === "default") {
+        const repoLine = container.createDiv({ cls: "gh-repo-line" });
+        repoLine.createEl("span", { cls: "gh-repo-line-name", text: recentRepo });
+      }
+
       if (this.viewMode === "year") {
         const weeks = buildYearWeeks(this.displayYear, days);
         this.renderYearGrid(container, weeks);
@@ -536,7 +543,7 @@ export class ContributionsView extends ItemView {
       if (showLocal && info.sinceCommit !== null)
         items.push(["⏱", info.sinceCommit + "d", "Days since last commit"]);
       if (info.recentRepo)
-        items.push(["📁", info.recentRepo.length > 20 ? info.recentRepo.slice(0,19) + "\u2026" : info.recentRepo, info.recentRepo]);
+        items.push(["📁", info.recentRepo, info.recentRepo]);
       for (const [icon, val, title] of items) {
         const chip = row.createEl("span", { cls: "gh-chip", title });
         chip.createEl("span", { cls: "gh-chip-icon", text: icon });
@@ -565,14 +572,6 @@ export class ContributionsView extends ItemView {
       this.pill(stats, info.streaks.longest + "d", "best");
       if (showLocal && info.sinceCommit !== null)
         this.pill(stats, info.sinceCommit + "d", "since commit");
-      if (info.recentRepo) {
-        const maxLen = 20;
-        const name = info.recentRepo.length > maxLen ? info.recentRepo.slice(0, maxLen-1) + "\u2026" : info.recentRepo;
-        const pill = stats.createDiv({ cls: "gh-stat gh-stat--wide" });
-        pill.title = info.recentRepo;
-        pill.createEl("span", { cls: "gh-stat-val", text: name });
-        pill.createEl("span", { cls: "gh-stat-lbl", text: "recent repo" });
-      }
     }
   }
 
@@ -982,6 +981,8 @@ body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2
 .gh-chip{display:inline-flex;align-items:center;gap:3px;background:var(--background-secondary);border-radius:4px;padding:3px 6px;font-size:11px;white-space:nowrap}
 .gh-chip-icon{font-size:10px}
 .gh-chip-val{font-weight:700;color:var(--interactive-accent)}
+.gh-repo-line{margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid var(--background-modifier-border)}
+.gh-repo-line-name{font-size:11px;color:var(--text-muted);font-style:italic}
 .gh-graph-wrap{overflow-x:auto;padding-bottom:4px}
 .gh-month-lbl{font-size:9px;color:var(--text-faint)}
 .gh-cell{border-radius:2px;cursor:pointer;transition:transform .1s;flex-shrink:0;box-sizing:border-box}
