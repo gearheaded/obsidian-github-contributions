@@ -84,14 +84,15 @@ var PALETTES = {
   }
 };
 async function requestDeviceCode() {
-  const res = await fetch(GITHUB_DEVICE_URL, {
+  const res = await (0, import_obsidian.requestUrl)({
+    url: GITHUB_DEVICE_URL,
     method: "POST",
     headers: { "Accept": "application/json", "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: "read:user" })
   });
-  if (!res.ok)
+  if (res.status !== 200)
     throw new Error(`GitHub device flow error: ${res.status}`);
-  return await res.json();
+  return res.json;
 }
 async function pollForToken(deviceCode, intervalSecs, onCancel) {
   var _a;
@@ -103,7 +104,8 @@ async function pollForToken(deviceCode, intervalSecs, onCancel) {
     await delay(pollInterval);
     if (onCancel())
       throw new Error("Cancelled");
-    const res = await fetch(GITHUB_TOKEN_URL, {
+    const res = await (0, import_obsidian.requestUrl)({
+      url: GITHUB_TOKEN_URL,
       method: "POST",
       headers: { "Accept": "application/json", "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -112,7 +114,7 @@ async function pollForToken(deviceCode, intervalSecs, onCancel) {
         grant_type: "urn:ietf:params:oauth:grant-type:device_code"
       })
     });
-    const data = await res.json();
+    const data = res.json;
     if (data.access_token)
       return data.access_token;
     if (data.error === "authorization_pending")
@@ -129,13 +131,13 @@ async function pollForToken(deviceCode, intervalSecs, onCancel) {
   }
 }
 async function fetchGitHubUsername(token) {
-  const res = await fetch(GITHUB_USER_URL, {
+  const res = await (0, import_obsidian.requestUrl)({
+    url: GITHUB_USER_URL,
     headers: { Authorization: `bearer ${token}` }
   });
-  if (!res.ok)
+  if (res.status !== 200)
     throw new Error("Could not fetch GitHub username");
-  const data = await res.json();
-  return data.login;
+  return res.json.login;
 }
 async function fetchGitHubContributions(username, token, year) {
   var _a, _b, _c, _d, _e, _f;
@@ -747,7 +749,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
   renderEmpty(container, missing) {
     const wrap = container.createDiv({ cls: "gh-empty" });
     wrap.createEl("div", { cls: "gh-empty-icon", text: "\u{1F419}" });
-    const msg = missing === "github" ? "Add your GitHub username and Personal Access Token in Settings." : "Set a local repo root folder in Settings to scan for git commits.";
+    const msg = missing === "github" ? "Connect your GitHub account in Settings to see your contribution graph." : "Set a local repo root folder in Settings to scan for git commits.";
     wrap.createEl("p", { text: msg });
     const btn = wrap.createEl("button", { cls: "gh-btn", text: "Open Settings" });
     btn.onclick = () => {

@@ -8,6 +8,7 @@ import {
   WorkspaceLeaf,
   moment,
   TFile,
+  requestUrl,
 } from "obsidian";
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -136,13 +137,14 @@ interface DeviceCodeResponse {
 }
 
 async function requestDeviceCode(): Promise<DeviceCodeResponse> {
-  const res = await fetch(GITHUB_DEVICE_URL, {
+  const res = await requestUrl({
+    url: GITHUB_DEVICE_URL,
     method: "POST",
     headers: { "Accept": "application/json", "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: "read:user" }),
   });
-  if (!res.ok) throw new Error(`GitHub device flow error: ${res.status}`);
-  return await res.json();
+  if (res.status !== 200) throw new Error(`GitHub device flow error: ${res.status}`);
+  return res.json;
 }
 
 async function pollForToken(
@@ -158,7 +160,8 @@ async function pollForToken(
     await delay(pollInterval);
     if (onCancel()) throw new Error("Cancelled");
 
-    const res = await fetch(GITHUB_TOKEN_URL, {
+    const res = await requestUrl({
+      url: GITHUB_TOKEN_URL,
       method: "POST",
       headers: { "Accept": "application/json", "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -167,7 +170,7 @@ async function pollForToken(
         grant_type: "urn:ietf:params:oauth:grant-type:device_code",
       }),
     });
-    const data = await res.json();
+    const data = res.json;
 
     if (data.access_token) return data.access_token;
     if (data.error === "authorization_pending") continue;
@@ -179,12 +182,12 @@ async function pollForToken(
 }
 
 async function fetchGitHubUsername(token: string): Promise<string> {
-  const res = await fetch(GITHUB_USER_URL, {
+  const res = await requestUrl({
+    url: GITHUB_USER_URL,
     headers: { Authorization: `bearer ${token}` },
   });
-  if (!res.ok) throw new Error("Could not fetch GitHub username");
-  const data = await res.json();
-  return data.login;
+  if (res.status !== 200) throw new Error("Could not fetch GitHub username");
+  return res.json.login;
 }
 
 // ── GitHub API ───────────────────────────────────────────────────────────────
@@ -839,7 +842,7 @@ export class ContributionsView extends ItemView {
     const wrap = container.createDiv({ cls: "gh-empty" });
     wrap.createEl("div", { cls: "gh-empty-icon", text: "🐙" });
     const msg = missing === "github"
-      ? "Add your GitHub username and Personal Access Token in Settings."
+      ? "Connect your GitHub account in Settings to see your contribution graph."
       : "Set a local repo root folder in Settings to scan for git commits.";
     wrap.createEl("p", { text: msg });
     const btn = wrap.createEl("button", { cls: "gh-btn", text: "Open Settings" });
