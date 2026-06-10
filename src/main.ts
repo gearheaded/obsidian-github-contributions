@@ -47,6 +47,7 @@ interface GitHubContributionsSettings {
   // Data sources
   dataSource: DataSource;
   localRepoRoot: string;
+  scanDepth: number; // 2-5, or 0 = unlimited
   // Display
   sidebarSide: "left" | "right";
   selectedYear: number;
@@ -54,6 +55,7 @@ interface GitHubContributionsSettings {
   defaultView: ViewMode;
   palette: Palette;
   statsStyle: StatsStyle;
+  demoMode: boolean;
   // Daily notes
   dailyNoteFolder: string;
   dailyNoteDateFormat: string;
@@ -64,6 +66,8 @@ const DEFAULT_SETTINGS: GitHubContributionsSettings = {
   githubUsername: "",
   dataSource: "github",
   localRepoRoot: "",
+  scanDepth: 2,
+  demoMode: false,
   sidebarSide: "right",
   selectedYear: new Date().getFullYear(),
   sizePreset: "medium",
@@ -161,10 +165,11 @@ function isGitRepo(path: string): boolean {
   return result.trim() === "true";
 }
 
-async function discoverRepos(rootPath: string): Promise<LocalRepo[]> {
+async function discoverRepos(rootPath: string, maxDepth = 2): Promise<LocalRepo[]> {
   if (!isDesktop) return [];
   const repos: LocalRepo[] = [];
-  // Use find-like approach: list subdirectories up to 2 levels deep that contain .git
+  // Use find-like approach: list subdirectories up to maxDepth levels deep that contain .git
+  // maxDepth === 0 means unlimited
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fs = (window as any).require("fs");
@@ -172,7 +177,7 @@ async function discoverRepos(rootPath: string): Promise<LocalRepo[]> {
     const path = (window as any).require("path");
 
     const scanDir = (dir: string, depth: number) => {
-      if (depth > 2) return;
+      if (maxDepth !== 0 && depth > maxDepth) return;
       let entries: string[];
       try { entries = fs.readdirSync(dir); } catch { return; }
       // Check if this dir itself is a repo
@@ -352,6 +357,37 @@ function daysSinceLastCommit(days: Map<string, DayData>): number | null {
   return null;
 }
 
+// ── Demo mode ────────────────────────────────────────────────────────────────
+function buildDemoData(year: number): Map<string, DayData> {
+  const days = new Map<string, DayData>();
+  const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const daysInYear = isLeap ? 366 : 365;
+  // Seeded pseudo-random for reproducible demo
+  let seed = 42;
+  const rand = () => { seed = (seed * 1664525 + 1013904223) & 0xffffffff; return (seed >>> 0) / 0xffffffff; };
+  const demoRepos = ["my-project", "obsidian-plugin", "dotfiles"];
+
+  for (let i = 0; i < daysInYear; i++) {
+    const d = new Date(year, 0, i + 1);
+    const dateStr = `${year}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    const r = rand();
+    // ~60% chance of activity, weighted toward recent months
+    const recencyBoost = i / daysInYear;
+    const active = r < (0.45 + recencyBoost * 0.3);
+    if (!active) continue;
+    const count = Math.floor(rand() * 8) + 1;
+    const repos: Record<string, number> = {};
+    let remaining = count;
+    for (const repo of demoRepos) {
+      if (remaining <= 0) break;
+      const n = Math.min(remaining, Math.floor(rand() * 4) + 1);
+      if (rand() > 0.4) { repos[repo] = n; remaining -= n; }
+    }
+    days.set(dateStr, { date: dateStr, count, githubCount: count, localCount: 0, repos });
+  }
+  return days;
+}
+
 function mostRecentRepo(repos: LocalRepo[]): string | null {
   if (!repos.length) return null;
   const sorted = [...repos].filter(r => r.lastCommit).sort((a,b) => (b.lastCommit ?? "").localeCompare(a.lastCommit ?? ""));
@@ -445,15 +481,25 @@ export class ContributionsView extends ItemView {
       // Discover repos if needed
       let repos: LocalRepo[] = [];
       if (needsLocal && s.localRepoRoot) {
-        repos = await discoverRepos(s.localRepoRoot);
+        repos = await discoverRepos(s.localRepoRoot, s.scanDepth);
       }
 
-      const { days, totalGH, totalLocal } = await buildDayMap(s, this.displayYear, repos);
+      let days: Map<string, DayData>;
+      let totalGH = 0, totalLocal = 0;
+
+      if (s.demoMode) {
+        days = buildDemoData(this.displayYear);
+        totalGH = [...days.values()].reduce((a, d) => a + d.githubCount, 0);
+      } else {
+        const result = await buildDayMap(s, this.displayYear, repos);
+        days = result.days; totalGH = result.totalGH; totalLocal = result.totalLocal;
+      }
+
       container.empty();
 
       const streaks = calculateStreaks(days, this.displayYear);
       const sinceCommit = daysSinceLastCommit(days);
-      const recentRepo = mostRecentRepo(repos);
+      const recentRepo = s.demoMode ? "my-project" : mostRecentRepo(repos);
 
       this.renderHeader(container);
       this.renderStats(container, { totalGH, totalLocal, streaks, sinceCommit, recentRepo });
@@ -541,8 +587,10 @@ export class ContributionsView extends ItemView {
         ["🔥", info.streaks.current + "d", "Current streak"],
         ["⭐", info.streaks.longest + "d", "Best streak"],
       ];
-      if (showLocal && info.sinceCommit !== null)
-        items.push(["⏱", info.sinceCommit + "d", "Days since last commit"]);
+      if (showLocal && info.sinceCommit !== null) {
+        const sinceLabel = info.sinceCommit === 0 ? "committed today" : info.sinceCommit + "d ago";
+        items.push(["⏱", info.sinceCommit === 0 ? "today" : info.sinceCommit + "d", sinceLabel]);
+      }
       if (info.recentRepo)
         items.push(["📁", info.recentRepo, info.recentRepo]);
       for (const [icon, val, title] of items) {
@@ -556,7 +604,7 @@ export class ContributionsView extends ItemView {
       this.pill(stats, info.streaks.current + "d", "streak");
       this.pill(stats, info.streaks.longest + "d", "best");
       if (showLocal && info.sinceCommit !== null)
-        this.pill(stats, info.sinceCommit + "d", "since commit");
+        this.pill(stats, info.sinceCommit === 0 ? "today" : info.sinceCommit + "d ago", info.sinceCommit === 0 ? "committed" : "since commit");
       if (info.recentRepo) {
         const maxLen = 16;
         const name = info.recentRepo.length > maxLen ? info.recentRepo.slice(0, maxLen-1) + "\u2026" : info.recentRepo;
@@ -573,8 +621,11 @@ export class ContributionsView extends ItemView {
         ["🔥", info.streaks.current + "d", "streak"],
         ["⭐", info.streaks.longest + "d", "best"],
       ];
-      if (showLocal && info.sinceCommit !== null)
-        items.push(["⏱", info.sinceCommit + "d", "since commit"]);
+      if (showLocal && info.sinceCommit !== null) {
+        const val = info.sinceCommit === 0 ? "today" : info.sinceCommit + "d ago";
+        const lbl = info.sinceCommit === 0 ? "committed today" : "since commit";
+        items.push(["⏱", val, lbl]);
+      }
       for (const [icon, val, label] of items) {
         const row = list.createDiv({ cls: "gh-stats-list-row" });
         row.createEl("span", { cls: "gh-stats-list-icon", text: icon });
@@ -825,9 +876,22 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
       } else {
         new Setting(containerEl)
           .setName("Local repo root")
-          .setDesc("Folder to scan for git repositories (searches 2 levels deep)")
+          .setDesc("Folder to scan for git repositories")
           .addText(t => t.setPlaceholder("C:\\Users\\Peter\\Projects").setValue(this.plugin.settings.localRepoRoot)
             .onChange(async v => { this.plugin.settings.localRepoRoot = v.trim(); await this.plugin.saveSettings(); }));
+
+        new Setting(containerEl)
+          .setName("Scan depth")
+          .setDesc("How many folder levels deep to search for git repos")
+          .addDropdown(d => d
+            .addOption("2", "2 levels")
+            .addOption("3", "3 levels")
+            .addOption("4", "4 levels")
+            .addOption("5", "5 levels")
+            .addOption("0", "Unlimited (slow on large drives)")
+            .setValue(String(this.plugin.settings.scanDepth))
+            .onChange(async v => { this.plugin.settings.scanDepth = parseInt(v); await this.plugin.saveSettings(); })
+          );
       }
     }
 
@@ -893,6 +957,12 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
         }));
 
     // ── Daily Notes
+    new Setting(containerEl)
+      .setName("Demo mode")
+      .setDesc("Show fake contribution data — useful for screenshots or testing")
+      .addToggle(t => t.setValue(this.plugin.settings.demoMode)
+        .onChange(async v => { this.plugin.settings.demoMode = v; await this.plugin.saveSettings(); }));
+
     containerEl.createEl("h3", { text: "Daily Notes" });
 
     new Setting(containerEl)
