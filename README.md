@@ -1,13 +1,13 @@
 # GitHub Contributions for Obsidian
 
-View your GitHub and local Git contribution heatmap directly in the Obsidian sidebar - with streak tracking, per-repo tooltips, color palettes, and one-click daily note creation. Connect quickly using OAuth (recommended) or a Personal Access Token.
+View GitHub and local Git contributions directly in the Obsidian sidebar - complete with streak tracking, per-repo tooltips, color palettes, and one-click daily note creation.
 
 ![Palette showcase](media/ss-palettes_labelled.png)
 
 ## Features
 
 - **Contribution heatmap** - full year or month view, dark/light theme aware
-- **Local Git support** - scans your local repos and merges commits into the same graph
+- **Local Git support** - include contributions from repositories that never leave your machine
 - **OAuth authentication** - connect GitHub with one click, no token copying required
 - **Year and month navigation** - flip back through any year since 2008, or browse month by month
 - **Stats bar** - total contributions, current streak, best streak, days since last commit, most recent repo
@@ -83,7 +83,7 @@ Local Git mode only runs `git log` locally - no data is sent anywhere.
 
 ## Daily note integration
 
-Clicking any contribution cell opens the matching daily note. If it doesn't exist yet it's created automatically. Works alongside the core Daily Notes and Periodic Notes plugins - just make sure the folder and date format match.
+Clicking any contribution cell opens the matching daily note. If it doesn't exist yet then it will be created automatically. Works alongside the core Daily Notes and Periodic Notes plugins - just make sure the folder and date format match.
 
 ## Settings reference
 
@@ -119,6 +119,7 @@ Clicking any contribution cell opens the matching daily note. If it doesn't exis
 
 - **GitHub OAuth token** - stored locally, only used to call the GitHub GraphQL API
 - **Local Git mode** - only runs `git log` locally, reads commit metadata only, no data sent anywhere
+- No analytics, tracking, or telemetry
 
 ## Building from source
 
