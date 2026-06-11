@@ -2,13 +2,13 @@
 
 View GitHub and local Git contributions directly in the Obsidian sidebar - complete with streak tracking, per-repo tooltips, color palettes, and one-click daily note creation.
 
-![GitHub Contributions](images/ss-contributions-main.png)
+![GitHub Contributions](media/ss-contributions-main.png)
 
 ## Themes & Customization
 
 Choose from multiple color palettes and layouts to match your vault.
 
-![Themes](images/ss-contributions-themes.png)
+![Palette showcase](media/ss-palettes_labelled.png)
 
 ## Features
 
@@ -18,11 +18,8 @@ Choose from multiple color palettes and layouts to match your vault.
 - **Year and month navigation** - flip back through any year since 2008, or browse month by month
 - **Stats bar** - total contributions, current streak, best streak, days since last commit, most recent repo
 - **Hover tooltips** - date, total count, and per-repo breakdown on every cell
-
-![Tooltip showing per-repo breakdown](media/ss-tooltip.png)
-
 - **Click to open daily note** - clicking any day opens (or creates) the matching daily note
-- **Five colour palettes** - Classic (GitHub greens), High Contrast, Cobalt (blue/cyan), Neon (purple/yellow), Ember (amber/gold)
+- **Five color palettes** - Classic (GitHub greens), High Contrast, Cobalt (blue/cyan), Neon (purple/yellow), Ember (amber/gold)
 - **Three stats styles** - Default list, Compact chips, or Grid
 
 ![Stats display styles](media/ss-stats-styles.png)
@@ -108,12 +105,12 @@ Clicking any contribution cell opens the matching daily note. If it doesn't exis
 |---|---|
 | Sidebar side | Left or right panel |
 | Stats display | Default list, Compact chips, or Grid |
-| Colour palette | Classic, High Contrast, Cobalt, Neon, or Ember |
+| Color palette | Classic, High Contrast, Cobalt, Neon, or Ember |
 | Size | Ultra compact, Compact, Medium, Large, or Fit to sidebar |
 | Default view | Year or Month |
 | Default year | Year shown on first open |
 | Demo mode | Show fake data for screenshots or testing |
-| Show legend | Show or hide the Less / More colour legend |
+| Show legend | Show or hide the Less / More color legend |
 
 ### Daily Notes
 | Setting | Description |
