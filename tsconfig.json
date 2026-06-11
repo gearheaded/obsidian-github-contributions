@@ -9,7 +9,7 @@
     "importHelpers": true,
     "isolatedModules": true,
     "strictNullChecks": true,
-    "lib": ["ES6", "DOM"],
+    "lib": ["ES2017", "DOM"],
     "noImplicitAny": true,
     "skipLibCheck": true
   },
