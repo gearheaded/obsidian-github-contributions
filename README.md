@@ -19,10 +19,10 @@ View GitHub and local Git contributions directly in the Obsidian sidebar - compl
 ![Stats display styles](media/ss-stats-styles.png)
 
 - **Year and month views** - navigate the full year or zoom into a single month
+- **Configurable size** - Ultra compact, Compact, Medium, Large, or Fit to sidebar
 
 ![Month views](media/ss-month-views.png)
 
-- **Configurable size** - Ultra compact, Compact, Medium, Large, or Fit to sidebar
 - **Demo mode** - generates realistic fake data for screenshots or testing
 - **Mobile friendly** - GitHub contributions work on mobile; local Git gracefully disabled
 

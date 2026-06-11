@@ -78,6 +78,7 @@ interface GitHubContributionsSettings {
   statsStyle: StatsStyle;
   demoMode: boolean;
   showLegend: boolean;
+  tooltipStyle: TooltipStyle;
   // Daily notes
   dailyNoteFolder: string;
   dailyNoteDateFormat: string;
@@ -92,6 +93,7 @@ const DEFAULT_SETTINGS: GitHubContributionsSettings = {
   scanDepth: 2,
   demoMode: false,
   showLegend: true,
+  tooltipStyle: "standard",
   sidebarSide: "right",
   selectedYear: new Date().getFullYear(),
   sizePreset: "medium",
@@ -118,6 +120,7 @@ const PRESET_SIZES: Record<SizePreset, { cell: number; gap: number }> = {
 // ########################################################################
 type Palette = "classic" | "high-contrast" | "cobalt" | "neon" | "ember";
 type StatsStyle = "compact" | "default" | "grid";
+type TooltipStyle = "standard" | "simple";
 
 // Each palette has 5 colours for contribution levels 0–4.
 // Level 0 = no contributions (empty cell), level 4 = highest activity.
@@ -614,11 +617,12 @@ function buildDemoData(year: number): Map<string, DayData> {
       if (rem > 0) repos[localRepos[0]] = (repos[localRepos[0]] ?? 0) + rem;
     }
 
-    // Verify counts are consistent
-    const repoTotal = Object.values(repos).reduce((a, b) => a + b, 0);
+    // count must always equal githubCount + localCount exactly.
+    // repoTotal from repo assignments may differ slightly due to random skips,
+    // so we use the authoritative split values for the headline count.
     days.set(dateStr, {
       date: dateStr,
-      count: repoTotal,
+      count: ghCount + localCount,
       githubCount: ghCount,
       localCount,
       repos,
@@ -958,49 +962,30 @@ export class ContributionsView extends ItemView {
   private showTooltip(e: MouseEvent, day: DayData) {
     if (!this.tooltipEl) return;
     const s = this.plugin.settings;
-    const dateStr = moment(day.date).format("MMM D, YYYY");
-    const lines: string[] = [dateStr];
-
-    if (day.count === 0) {
-      lines.push("No contributions");
-    } else {
-      lines.push(`${day.count} contribution${day.count !== 1 ? "s" : ""}`);
-      // Per-source breakdown — only shown when both sources are active
-      if (s.dataSource === "both" || s.demoMode) {
-        if (day.githubCount > 0) lines.push(`  GitHub: ${day.githubCount}`);
-        if (day.localCount > 0) lines.push(`  Local: ${day.localCount}`);
-      }
-      // Per-repo breakdown, sorted by count descending
-      const repoEntries = Object.entries(day.repos).sort((a,b) => b[1]-a[1]);
-      for (const [repo, count] of repoEntries) {
-        lines.push(`  ${repo} (${count})`);
-      }
-    }
+    const showSources = s.dataSource === "both" || s.demoMode;
+    const repoEntries = Object.entries(day.repos).sort((a, b) => b[1] - a[1]);
 
     this.tooltipEl.empty();
-    lines.forEach((line, i) => {
-      if (i > 0) this.tooltipEl!.createEl("br");
-      if (i === 0) {
-        this.tooltipEl!.createEl("strong", { text: line });
-      } else {
-        this.tooltipEl!.appendText(line);
-      }
-    });
+    this.tooltipEl.removeClass("gh-tooltip--console", "gh-tooltip--modern");
 
-    // Show tooltip first so we can measure its dimensions
+    if (s.tooltipStyle === "simple") {
+      this.renderSimpleTooltip(day, showSources);
+    } else {
+      this.renderStandardTooltip(day, showSources, repoEntries);
+    }
+
+    // Measure then position — render hidden first to get real dimensions
     this.tooltipEl.style.display = "block";
     this.tooltipEl.style.visibility = "hidden";
 
     const tooltipWidth  = this.tooltipEl.offsetWidth  || 180;
     const tooltipHeight = this.tooltipEl.offsetHeight || 80;
 
-    // Horizontal: flip left if not enough space on the right
     const spaceOnRight = window.innerWidth - e.pageX;
     const left = spaceOnRight < tooltipWidth + 20
       ? e.pageX - tooltipWidth - 12
       : e.pageX + 12;
 
-    // Vertical: flip above cursor if tooltip would go off the bottom
     const spaceBelow = window.innerHeight - e.pageY;
     const top = spaceBelow < tooltipHeight + 20
       ? e.pageY - tooltipHeight - 8
@@ -1009,6 +994,90 @@ export class ContributionsView extends ItemView {
     this.tooltipEl.style.left       = left + "px";
     this.tooltipEl.style.top        = top  + "px";
     this.tooltipEl.style.visibility = "visible";
+  }
+
+  private renderSimpleTooltip(day: DayData, showSources: boolean) {
+    const t = this.tooltipEl!;
+    t.addClass("gh-tooltip--modern");
+
+    t.createEl("div", { cls: "gh-tip-date", text: moment(day.date).format("MMM D, YYYY") });
+
+    if (day.count === 0) {
+      t.createEl("div", { cls: "gh-tip-no-contrib", text: "No contributions" });
+      return;
+    }
+
+    const countRow = t.createDiv({ cls: "gh-tip-count-row" });
+    countRow.createEl("span", { cls: "gh-tip-count", text: String(day.count) });
+    countRow.createEl("span", { cls: "gh-tip-count-lbl", text: ` contribution${day.count !== 1 ? "s" : ""}` });
+
+    if (showSources && (day.githubCount > 0 || day.localCount > 0)) {
+      const sources = t.createDiv({ cls: "gh-tip-sources" });
+      if (day.githubCount > 0) {
+        const row = sources.createDiv({ cls: "gh-tip-source-row" });
+        const ghIco = row.createEl("span", { cls: "gh-tip-source-icon" });
+        ghIco.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`;
+        row.createEl("span", { cls: "gh-tip-source-lbl", text: "GitHub" });
+        row.createEl("span", { cls: "gh-tip-source-val", text: String(day.githubCount) });
+      }
+      if (day.localCount > 0) {
+        const row = sources.createDiv({ cls: "gh-tip-source-row" });
+        const localIco = row.createEl("span", { cls: "gh-tip-source-icon" });
+        localIco.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/></svg>`;
+        row.createEl("span", { cls: "gh-tip-source-lbl", text: "Local" });
+        row.createEl("span", { cls: "gh-tip-source-val", text: String(day.localCount) });
+      }
+    }
+  }
+
+  private renderStandardTooltip(day: DayData, showSources: boolean, repoEntries: [string, number][]) {
+    const t = this.tooltipEl!;
+    t.addClass("gh-tooltip--modern");
+
+    // Date header
+    t.createEl("div", { cls: "gh-tip-date", text: moment(day.date).format("MMM D, YYYY") });
+
+    if (day.count === 0) {
+      t.createEl("div", { cls: "gh-tip-no-contrib", text: "No contributions" });
+      return;
+    }
+
+    // Count
+    const countRow = t.createDiv({ cls: "gh-tip-count-row" });
+    countRow.createEl("span", { cls: "gh-tip-count", text: String(day.count) });
+    countRow.createEl("span", { cls: "gh-tip-count-lbl", text: ` contribution${day.count !== 1 ? "s" : ""}` });
+
+    // Source breakdown
+    if (showSources && (day.githubCount > 0 || day.localCount > 0)) {
+      const sources = t.createDiv({ cls: "gh-tip-sources" });
+      if (day.githubCount > 0) {
+        const row = sources.createDiv({ cls: "gh-tip-source-row" });
+        const ghIco = row.createEl("span", { cls: "gh-tip-source-icon" });
+        ghIco.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`;
+        row.createEl("span", { cls: "gh-tip-source-lbl", text: "GitHub" });
+        row.createEl("span", { cls: "gh-tip-source-val", text: String(day.githubCount) });
+      }
+      if (day.localCount > 0) {
+        const row = sources.createDiv({ cls: "gh-tip-source-row" });
+        const localIco = row.createEl("span", { cls: "gh-tip-source-icon" });
+        localIco.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/></svg>`;
+        row.createEl("span", { cls: "gh-tip-source-lbl", text: "Local" });
+        row.createEl("span", { cls: "gh-tip-source-val", text: String(day.localCount) });
+      }
+    }
+
+    // Divider + repos
+    if (repoEntries.length > 0) {
+      t.createDiv({ cls: "gh-tip-divider" });
+      const repoColors = ["#f59e0b", "#3b82f6", "#a855f7", "#10b981", "#ef4444"];
+      repoEntries.forEach(([repo, count], i) => {
+        const row = t.createDiv({ cls: "gh-tip-repo-row" });
+        const dot = row.createEl("span", { cls: "gh-tip-dot" });
+        dot.style.background = repoColors[i % repoColors.length];
+        row.createEl("span", { cls: "gh-tip-repo-name", text: repo });
+        row.createEl("span", { cls: "gh-tip-repo-count", text: `(${count})` });
+      });
+    }
   }
 
   private renderLegend(container: HTMLElement) {
@@ -1336,6 +1405,16 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
 
     // ── Daily Notes
     new Setting(containerEl)
+      .setName("Tooltip style")
+      .setDesc("Console — compact monospace. Modern — larger, with colored repo markers.")
+      .addDropdown(d => d
+        .addOption("standard", "Standard (with repos)")
+        .addOption("simple",   "Simple (no repos)")
+        .setValue(this.plugin.settings.tooltipStyle)
+        .onChange(async v => { this.plugin.settings.tooltipStyle = v as TooltipStyle; await this.plugin.saveSettings(); })
+      );
+
+    new Setting(containerEl)
       .setName("Demo mode")
       .setDesc("Show fake contribution data — useful for screenshots or testing")
       .addToggle(t => t.setValue(this.plugin.settings.demoMode)
@@ -1491,6 +1570,48 @@ body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2
 .gh-tooltip{position:fixed;background:#1a1a1a;color:#eee;border-radius:6px;padding:7px 10px;font-size:11px;line-height:1.6;pointer-events:none;display:none;z-index:9999;white-space:pre;box-shadow:0 2px 10px rgba(0,0,0,.35);font-family:var(--font-monospace)}
 .gh-tooltip strong{color:#fff;display:block;margin-bottom:2px;font-family:var(--font-interface)}
 .theme-light .gh-tooltip{background:#222}
+/* Console tooltip */
+.gh-tooltip--console{background:#161b22;border:1px solid rgba(255,255,255,0.18);border-radius:8px;padding:10px 13px;font-family:var(--font-monospace);min-width:180px;white-space:normal;box-shadow:0 0 0 1px rgba(255,255,255,0.06),0 8px 24px rgba(0,0,0,.4)}
+.gh-con-date{font-size:11px;font-weight:600;color:#3fb950;margin-bottom:4px}
+.gh-con-dash{border-top:1px dashed rgba(255,255,255,0.15);margin:6px 0}
+.gh-con-count-row{display:flex;align-items:baseline;gap:4px;margin-bottom:5px}
+.gh-con-count{font-size:15px;font-weight:700;color:#3fb950}
+.gh-con-count-lbl{font-size:11px;color:#8b949e}
+.gh-con-source-row{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:3px}
+.gh-con-source-icon{color:#8b949e;width:14px;display:flex;align-items:center;flex-shrink:0}
+.gh-con-source-icon svg{display:block}
+.gh-con-source-lbl{color:#cdd9e5;flex:1}
+.gh-con-source-val{color:#fff;font-weight:700;min-width:16px;text-align:right}
+.gh-con-repo-row{display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:3px}
+.gh-con-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.gh-con-repo-name{color:#8b949e;flex:1}
+.gh-con-repo-count{color:#8b949e;font-size:10px}
+.gh-con-hint{font-size:9px;color:#484f58;margin-top:6px;font-style:italic}
+.gh-con-no-contrib{font-size:12px;color:#8b949e}
+.gh-tooltip--modern{white-space:normal;padding:12px 14px;border-radius:10px;background:#1c1f23;border:1px solid rgba(255,255,255,0.12);box-shadow:0 4px 20px rgba(0,0,0,.4);min-width:160px;font-family:var(--font-interface)}
+.theme-light .gh-tooltip--modern{background:#2a2d31;border-color:rgba(255,255,255,0.15)}
+/* Date — small, muted */
+.gh-tip-date{font-size:11px;font-weight:400;color:#cdd9e5;margin-bottom:6px}
+/* Main count — green and prominent */
+.gh-tip-count-row{display:flex;align-items:baseline;gap:4px;margin-bottom:7px}
+.gh-tip-count{font-size:15px;font-weight:700;color:#3fb950}
+.gh-tip-count-lbl{font-size:12px;color:#fff;margin-left:3px}
+/* GitHub / Local source rows */
+.gh-tip-sources{display:flex;flex-direction:column;gap:3px;margin-bottom:4px}
+.gh-tip-source-row{display:flex;align-items:center;gap:6px;font-size:12px}
+.gh-tip-source-icon{color:#8b949e;width:13px;display:flex;align-items:center;flex-shrink:0}
+.gh-tip-source-icon svg{display:block}
+.gh-tip-source-lbl{flex:1}
+.gh-tip-source-lbl{color:#8b949e}
+.gh-tip-source-val{color:#3fb950;font-weight:600}
+/* Divider */
+.gh-tip-divider{height:1px;background:rgba(255,255,255,0.1);margin:8px 0}
+/* Repo rows */
+.gh-tip-repo-row{display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:4px}
+.gh-tip-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.gh-tip-repo-name{color:#cdd9e5;flex:1;font-family:var(--font-monospace);font-size:11px}
+.gh-tip-repo-count{color:#8b949e;font-size:11px}
+.gh-tip-no-contrib{font-size:12px;color:#8b949e}
     `;
     document.head.appendChild(style);
   }
