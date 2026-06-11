@@ -49,7 +49,7 @@ var DEFAULT_SETTINGS = {
   selectedYear: new Date().getFullYear(),
   sizePreset: "medium",
   defaultView: "year",
-  palette: "default",
+  palette: "classic",
   statsStyle: "default",
   dailyNoteFolder: "",
   dailyNoteDateFormat: "YYYY-MM-DD"
@@ -63,7 +63,7 @@ var PRESET_SIZES = {
   // calculated at render time
 };
 var PALETTES = {
-  "default": {
+  "classic": {
     dark: ["var(--background-modifier-border)", "#0e4429", "#006d32", "#26a641", "#39d353"],
     light: ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"]
   },
@@ -975,7 +975,7 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
       })
     );
     new import_obsidian.Setting(containerEl).setName("Colour palette").setDesc("Colour scheme for contribution cells").addDropdown(
-      (d) => d.addOption("default", "Default (GitHub greens)").addOption("high-contrast", "High contrast (vivid greens)").addOption("cobalt", "Cobalt (blue to cyan)").addOption("neon", "Neon (purple to yellow)").addOption("ember", "Ember (amber to gold)").setValue(this.plugin.settings.palette).onChange(async (v) => {
+      (d) => d.addOption("classic", "Classic (GitHub greens)").addOption("high-contrast", "High contrast (vivid greens)").addOption("cobalt", "Cobalt (blue to cyan)").addOption("neon", "Neon (purple to yellow)").addOption("ember", "Ember (amber to gold)").setValue(this.plugin.settings.palette).onChange(async (v) => {
         this.plugin.settings.palette = v;
         await this.plugin.saveSettings();
       })
@@ -1071,7 +1071,7 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
     const existing = document.getElementById("gh-palette-styles");
     if (existing)
       existing.remove();
-    const p = (_a = PALETTES[this.settings.palette]) != null ? _a : PALETTES["default"];
+    const p = (_a = PALETTES[this.settings.palette]) != null ? _a : PALETTES["classic"];
     const style = document.createElement("style");
     style.id = "gh-palette-styles";
     style.textContent = `

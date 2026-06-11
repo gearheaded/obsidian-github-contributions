@@ -1,23 +1,33 @@
 # GitHub Contributions for Obsidian
 
-View your GitHub and local Git contribution heatmap directly in the Obsidian sidebar — with streak tracking, per-repo tooltips, colour palettes, and one-click daily note creation.
+View your GitHub and local Git contribution heatmap directly in the Obsidian sidebar - with streak tracking, per-repo tooltips, color palettes, and one-click daily note creation.
 
-![GitHub contribution graph in Obsidian sidebar]
+![Palette showcase](media/ss-palettes_labelled.png)
 
 ## Features
 
 - **Contribution heatmap** - full year or month view, dark/light theme aware
 - **Local Git support** - scans your local repos and merges commits into the same graph
+- **OAuth authentication** - connect GitHub with one click, no token copying required
 - **Year and month navigation** - flip back through any year since 2008, or browse month by month
 - **Stats bar** - total contributions, current streak, best streak, days since last commit, most recent repo
 - **Hover tooltips** - date, total count, and per-repo breakdown on every cell
+
+![Tooltip showing per-repo breakdown](media/ss-tooltip.png)
+
 - **Click to open daily note** - clicking any day opens (or creates) the matching daily note
-- **Five colour palettes** - Default (GitHub greens), High Contrast, Cobalt (blue/cyan), Neon (purple/yellow), Ember (amber/gold)
-- **Configurable size** - Ultra compact, Compact, Medium, Large, or Fit to sidebar
+- **Five colour palettes** - Classic (GitHub greens), High Contrast, Cobalt (blue/cyan), Neon (purple/yellow), Ember (amber/gold)
 - **Three stats styles** - Default list, Compact chips, or Grid
+
+![Stats display styles](media/ss-stats-styles.png)
+
+- **Year and month views** - navigate the full year or zoom into a single month
+
+![Month views](media/ss-month-views.png)
+
+- **Configurable size** - Ultra compact, Compact, Medium, Large, or Fit to sidebar
 - **Demo mode** - generates realistic fake data for screenshots or testing
-- **OAuth connect** - connect GitHub with one click, no token copying required
-- **Mobile safe** - GitHub contributions work on mobile; local Git gracefully disabled
+- **Mobile friendly** - GitHub contributions work on mobile; local Git gracefully disabled
 
 ## Installation
 
@@ -35,7 +45,7 @@ View your GitHub and local Git contribution heatmap directly in the Obsidian sid
    ```
    <YourVault>/.obsidian/plugins/github-contributions/
    ```
-3. In Obsidian → **Settings → Community Plugins**, enable **GitHub Contributions**
+3. In Obsidian -> **Settings -> Community Plugins**, enable **GitHub Contributions**
 
 ## Connecting GitHub
 
@@ -53,7 +63,7 @@ If you prefer a PAT, switch Authentication to **Personal Access Token** and ente
 - Your GitHub username
 - A PAT from [github.com/settings/tokens](https://github.com/settings/tokens) with only the `read:user` scope
 
-The token is stored locally in your vault and never leaves your machine except to call the GitHub GraphQL API.
+The token is stored locally in your vault and never leaves your machine except to call the GitHub GraphQL API. See the [Privacy](#privacy) section for more information.
 
 ## Local Git Support
 
@@ -61,7 +71,7 @@ To include commits from local repositories:
 
 1. Set **Source** to **Local git only** or **Both**
 2. Set **Local repo root** to a folder containing your git repos (e.g. `C:\Users\You\Projects`)
-3. The plugin scans that folder up to the configured depth and finds all git repos automatically
+3. Click **Scan** - the plugin finds all git repos automatically up to the configured depth
 
 Local Git mode only runs `git log` locally - no data is sent anywhere.
 
@@ -69,8 +79,11 @@ Local Git mode only runs `git log` locally - no data is sent anywhere.
 
 - Click the **GitHub icon** in the ribbon
 - Or run the command palette: `GitHub Contributions: Open GitHub Contributions panel`
+- On mobile: use the command palette (swipe down or tap the search icon)
 
 ## Settings reference
+
+![Settings page](media/ss-settings.png)
 
 ### Data Sources
 | Setting | Description |
@@ -85,11 +98,12 @@ Local Git mode only runs `git log` locally - no data is sent anywhere.
 |---|---|
 | Sidebar side | Left or right panel |
 | Stats display | Default list, Compact chips, or Grid |
-| Colour palette | Default, High Contrast, Colorblind Friendly, Neon, or Ember |
+| Colour palette | Classic, High Contrast, Cobalt, Neon, or Ember |
 | Size | Ultra compact, Compact, Medium, Large, or Fit to sidebar |
 | Default view | Year or Month |
 | Default year | Year shown on first open |
 | Demo mode | Show fake data for screenshots or testing |
+| Show legend | Show or hide the Less / More colour legend |
 
 ### Daily Notes
 | Setting | Description |

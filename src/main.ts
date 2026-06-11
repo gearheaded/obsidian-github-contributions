@@ -11,7 +11,9 @@ import {
   requestUrl,
 } from "obsidian";
 
-// ── Constants ────────────────────────────────────────────────────────────────
+// ########################################################################
+// Constants
+// ########################################################################
 const VIEW_TYPE = "github-contributions";
 const GITHUB_GRAPHQL = "https://api.github.com/graphql";
 const GITHUB_CLIENT_ID = "Ov23litfj5GbQ8mw81VV";
@@ -21,7 +23,9 @@ const GITHUB_USER_URL   = "https://api.github.com/user";
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ########################################################################
+// Types
+// ########################################################################
 type SizePreset = "ultra-compact" | "compact" | "medium" | "large" | "fit";
 type ViewMode = "year" | "month";
 type DataSource = "github" | "local" | "both";
@@ -81,7 +85,7 @@ const DEFAULT_SETTINGS: GitHubContributionsSettings = {
   selectedYear: new Date().getFullYear(),
   sizePreset: "medium",
   defaultView: "year",
-  palette: "default",
+  palette: "classic",
   statsStyle: "default",
   dailyNoteFolder: "",
   dailyNoteDateFormat: "YYYY-MM-DD",
@@ -96,8 +100,10 @@ const PRESET_SIZES: Record<SizePreset, { cell: number; gap: number }> = {
   "fit":           { cell: 0,  gap: 2 }, // calculated at render time
 };
 
-// ── Palettes ─────────────────────────────────────────────────────────────────
-type Palette = "default" | "high-contrast" | "cobalt" | "neon" | "ember";
+// ########################################################################
+// Palettes
+// ########################################################################
+type Palette = "classic" | "high-contrast" | "cobalt" | "neon" | "ember";
 type StatsStyle = "compact" | "default" | "grid";
 
 interface PaletteColors {
@@ -106,7 +112,7 @@ interface PaletteColors {
 }
 
 const PALETTES: Record<Palette, PaletteColors> = {
-  "default": {
+  "classic": {
     dark:  ["var(--background-modifier-border)", "#0e4429", "#006d32", "#26a641", "#39d353"],
     light: ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"],
   },
@@ -128,7 +134,9 @@ const PALETTES: Record<Palette, PaletteColors> = {
   },
 };
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ########################################################################
+// Helpers
+// ########################################################################
 function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number): T {
   let timer: ReturnType<typeof setTimeout>;
   return ((...args: unknown[]) => {
@@ -137,7 +145,9 @@ function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number): T 
   }) as T;
 }
 
-// ── OAuth Device Flow ────────────────────────────────────────────────────────
+// ########################################################################
+// OAuth Device Flow
+// ########################################################################
 
 interface DeviceCodeResponse {
   device_code: string;
@@ -231,7 +241,9 @@ async function fetchGitHubUsername(token: string): Promise<string> {
   return res.json.login;
 }
 
-// ── GitHub API ───────────────────────────────────────────────────────────────
+// ########################################################################
+// GitHub API
+// ########################################################################
 async function fetchGitHubContributions(
   username: string,
   token: string,
@@ -259,7 +271,9 @@ async function fetchGitHubContributions(
   return map;
 }
 
-// ── Local Git ────────────────────────────────────────────────────────────────
+// ########################################################################
+// Local Git
+// ########################################################################
 
 // Use Obsidian's adapter to run shell commands (desktop only via child_process via require)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -339,7 +353,9 @@ function fetchLocalCommits(repo: LocalRepo, year: number): Map<string, number> {
   return map;
 }
 
-// ── Build unified day map ────────────────────────────────────────────────────
+// ########################################################################
+// Build unified day map
+// ########################################################################
 async function buildDayMap(
   settings: GitHubContributionsSettings,
   year: number,
@@ -384,7 +400,9 @@ async function buildDayMap(
   return { days, totalGH, totalLocal, repoList: repos };
 }
 
-// ── Generate full year week structure ────────────────────────────────────────
+// ########################################################################
+// Generate full year week structure
+// ########################################################################
 function buildYearWeeks(year: number, days: Map<string, DayData>): DayData[][] {
   // Build array of all dates in the year, padded to start on Sunday
   const jan1 = new Date(year, 0, 1);
@@ -432,7 +450,9 @@ function buildMonthDays(year: number, month: number, days: Map<string, DayData>)
   return weeks;
 }
 
-// ── Streaks ──────────────────────────────────────────────────────────────────
+// ########################################################################
+// Streaks
+// ########################################################################
 function calculateStreaks(days: Map<string, DayData>, year: number): StreakInfo {
   const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
   const daysInYear = isLeap ? 366 : 365;
@@ -473,7 +493,9 @@ function daysSinceLastCommit(days: Map<string, DayData>): number | null {
   return null;
 }
 
-// ── Demo mode ────────────────────────────────────────────────────────────────
+// ########################################################################
+// Demo mode
+// ########################################################################
 function buildDemoData(year: number): Map<string, DayData> {
   const days = new Map<string, DayData>();
   const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
@@ -510,7 +532,9 @@ function mostRecentRepo(repos: LocalRepo[]): string | null {
   return sorted[0]?.name ?? null;
 }
 
-// ── View ─────────────────────────────────────────────────────────────────────
+// ########################################################################
+// View
+// ########################################################################
 export class ContributionsView extends ItemView {
   plugin: GitHubContributionsPlugin;
   displayYear: number;
@@ -940,7 +964,9 @@ export class ContributionsView extends ItemView {
   }
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ########################################################################
+// Helpers
+// ########################################################################
 function countToLevel(n: number): number {
   if (n === 0) return 0;
   if (n <= 2) return 1;
@@ -949,7 +975,9 @@ function countToLevel(n: number): number {
   return 4;
 }
 
-// ── Settings Tab ─────────────────────────────────────────────────────────────
+// ########################################################################
+// Settings Tab
+// ########################################################################
 class GitHubContributionsSettingTab extends PluginSettingTab {
   plugin: GitHubContributionsPlugin;
   constructor(app: App, plugin: GitHubContributionsPlugin) {
@@ -1151,7 +1179,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
       .setName("Colour palette")
       .setDesc("Colour scheme for contribution cells")
       .addDropdown(d => d
-        .addOption("default",       "Default (GitHub greens)")
+        .addOption("classic",       "Classic (GitHub greens)")
         .addOption("high-contrast", "High contrast (vivid greens)")
         .addOption("cobalt",        "Cobalt (blue to cyan)")
         .addOption("neon",          "Neon (purple to yellow)")
@@ -1222,7 +1250,9 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
   }
 }
 
-// ── Plugin ───────────────────────────────────────────────────────────────────
+// ########################################################################
+// Plugin
+// ########################################################################
 export default class GitHubContributionsPlugin extends Plugin {
   settings: GitHubContributionsSettings = { ...DEFAULT_SETTINGS };
 
@@ -1268,7 +1298,7 @@ export default class GitHubContributionsPlugin extends Plugin {
   injectPaletteStyles() {
     const existing = document.getElementById("gh-palette-styles");
     if (existing) existing.remove();
-    const p = PALETTES[this.settings.palette] ?? PALETTES["default"];
+    const p = PALETTES[this.settings.palette] ?? PALETTES["classic"];
     const style = document.createElement("style");
     style.id = "gh-palette-styles";
     // Use body instead of :root for reliability in Obsidian's DOM
