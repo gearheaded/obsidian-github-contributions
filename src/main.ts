@@ -62,6 +62,7 @@ interface GitHubContributionsSettings {
   palette: Palette;
   statsStyle: StatsStyle;
   demoMode: boolean;
+  showLegend: boolean;
   // Daily notes
   dailyNoteFolder: string;
   dailyNoteDateFormat: string;
@@ -75,6 +76,7 @@ const DEFAULT_SETTINGS: GitHubContributionsSettings = {
   localRepoRoot: "",
   scanDepth: 2,
   demoMode: false,
+  showLegend: true,
   sidebarSide: "right",
   selectedYear: new Date().getFullYear(),
   sizePreset: "medium",
@@ -125,6 +127,15 @@ const PALETTES: Record<Palette, PaletteColors> = {
     light: ["#f5f0e8", "#f5d5a0", "#e8820c", "#b45200", "#7a3200"],
   },
 };
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number): T {
+  let timer: ReturnType<typeof setTimeout>;
+  return ((...args: unknown[]) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  }) as T;
+}
 
 // ── OAuth Device Flow ────────────────────────────────────────────────────────
 
@@ -625,7 +636,7 @@ export class ContributionsView extends ItemView {
         this.renderMonthGrid(container, weeks);
       }
 
-      this.renderLegend(container);
+      if (this.plugin.settings.showLegend) this.renderLegend(container);
     } catch (e) {
       container.empty();
       this.renderError(container, (e as Error).message);
@@ -1085,8 +1096,21 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
         new Setting(containerEl)
           .setName("Local repo root")
           .setDesc("Folder to scan for git repositories")
-          .addText(t => t.setPlaceholder("C:\\Users\\Peter\\Projects").setValue(this.plugin.settings.localRepoRoot)
-            .onChange(async v => { this.plugin.settings.localRepoRoot = v.trim(); await this.plugin.saveSettings(); }));
+          .addText(t => {
+            t.setPlaceholder("C:\\Users\\You\\Projects").setValue(this.plugin.settings.localRepoRoot);
+            // Store value in memory as user types but don't save/scan yet
+            t.onChange(v => { this.plugin.settings.localRepoRoot = v.trim(); });
+          })
+          .addButton(btn => btn
+            .setButtonText("Scan")
+            .setTooltip("Save path and scan for repositories")
+            .onClick(async () => {
+              btn.setButtonText("Scanning…").setDisabled(true);
+              await this.plugin.saveSettings();
+              btn.setButtonText("Scan").setDisabled(false);
+              new Notice("Repo scan complete — refresh the panel to see results");
+            })
+          );
 
         new Setting(containerEl)
           .setName("Scan depth")
@@ -1172,19 +1196,29 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
       .addToggle(t => t.setValue(this.plugin.settings.demoMode)
         .onChange(async v => { this.plugin.settings.demoMode = v; await this.plugin.saveSettings(); }));
 
+    new Setting(containerEl)
+      .setName("Show legend")
+      .setDesc("Show the Less / More colour legend below the graph")
+      .addToggle(t => t.setValue(this.plugin.settings.showLegend)
+        .onChange(async v => { this.plugin.settings.showLegend = v; await this.plugin.saveSettings(); }));
+
     containerEl.createEl("h3", { text: "Daily Notes" });
 
     new Setting(containerEl)
       .setName("Daily notes folder")
       .setDesc("Leave blank for vault root")
-      .addText(t => t.setPlaceholder("Daily Notes/").setValue(this.plugin.settings.dailyNoteFolder)
-        .onChange(async v => { this.plugin.settings.dailyNoteFolder = v; await this.plugin.saveSettings(); }));
+      .addText(t => {
+        t.setPlaceholder("Daily Notes/").setValue(this.plugin.settings.dailyNoteFolder);
+        t.onChange(debounce(async (v: unknown) => { this.plugin.settings.dailyNoteFolder = v as string; await this.plugin.saveSettings(); }, 800));
+      });
 
     new Setting(containerEl)
       .setName("Date format")
       .setDesc("Moment.js format for filenames. Default: YYYY-MM-DD")
-      .addText(t => t.setPlaceholder("YYYY-MM-DD").setValue(this.plugin.settings.dailyNoteDateFormat)
-        .onChange(async v => { this.plugin.settings.dailyNoteDateFormat = v; await this.plugin.saveSettings(); }));
+      .addText(t => {
+        t.setPlaceholder("YYYY-MM-DD").setValue(this.plugin.settings.dailyNoteDateFormat);
+        t.onChange(debounce(async (v: unknown) => { this.plugin.settings.dailyNoteDateFormat = v as string; await this.plugin.saveSettings(); }, 800));
+      });
   }
 }
 

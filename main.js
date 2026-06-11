@@ -44,6 +44,7 @@ var DEFAULT_SETTINGS = {
   localRepoRoot: "",
   scanDepth: 2,
   demoMode: false,
+  showLegend: true,
   sidebarSide: "right",
   selectedYear: new Date().getFullYear(),
   sizePreset: "medium",
@@ -83,6 +84,13 @@ var PALETTES = {
     light: ["#f5f0e8", "#f5d5a0", "#e8820c", "#b45200", "#7a3200"]
   }
 };
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
 async function requestDeviceCode() {
   let res;
   try {
@@ -536,7 +544,8 @@ var ContributionsView = class extends import_obsidian.ItemView {
         const weeks = buildMonthDays(this.displayYear, this.displayMonth, days);
         this.renderMonthGrid(container, weeks);
       }
-      this.renderLegend(container);
+      if (this.plugin.settings.showLegend)
+        this.renderLegend(container);
     } catch (e) {
       container.empty();
       this.renderError(container, e.message);
@@ -933,10 +942,19 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
       if (!isDesktop) {
         containerEl.createEl("p", { cls: "gh-settings-notice", text: "\u26A0 Local git scanning is not available on mobile." });
       } else {
-        new import_obsidian.Setting(containerEl).setName("Local repo root").setDesc("Folder to scan for git repositories").addText((t) => t.setPlaceholder("C:\\Users\\Peter\\Projects").setValue(this.plugin.settings.localRepoRoot).onChange(async (v) => {
-          this.plugin.settings.localRepoRoot = v.trim();
-          await this.plugin.saveSettings();
-        }));
+        new import_obsidian.Setting(containerEl).setName("Local repo root").setDesc("Folder to scan for git repositories").addText((t) => {
+          t.setPlaceholder("C:\\Users\\You\\Projects").setValue(this.plugin.settings.localRepoRoot);
+          t.onChange((v) => {
+            this.plugin.settings.localRepoRoot = v.trim();
+          });
+        }).addButton(
+          (btn) => btn.setButtonText("Scan").setTooltip("Save path and scan for repositories").onClick(async () => {
+            btn.setButtonText("Scanning\u2026").setDisabled(true);
+            await this.plugin.saveSettings();
+            btn.setButtonText("Scan").setDisabled(false);
+            new import_obsidian.Notice("Repo scan complete \u2014 refresh the panel to see results");
+          })
+        );
         new import_obsidian.Setting(containerEl).setName("Scan depth").setDesc("How many folder levels deep to search for git repos").addDropdown(
           (d) => d.addOption("2", "2 levels").addOption("3", "3 levels").addOption("4", "4 levels").addOption("5", "5 levels").addOption("0", "Unlimited (slow on large drives)").setValue(String(this.plugin.settings.scanDepth)).onChange(async (v) => {
             this.plugin.settings.scanDepth = parseInt(v);
@@ -981,15 +999,25 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
       this.plugin.settings.demoMode = v;
       await this.plugin.saveSettings();
     }));
+    new import_obsidian.Setting(containerEl).setName("Show legend").setDesc("Show the Less / More colour legend below the graph").addToggle((t) => t.setValue(this.plugin.settings.showLegend).onChange(async (v) => {
+      this.plugin.settings.showLegend = v;
+      await this.plugin.saveSettings();
+    }));
     containerEl.createEl("h3", { text: "Daily Notes" });
-    new import_obsidian.Setting(containerEl).setName("Daily notes folder").setDesc("Leave blank for vault root").addText((t) => t.setPlaceholder("Daily Notes/").setValue(this.plugin.settings.dailyNoteFolder).onChange(async (v) => {
-      this.plugin.settings.dailyNoteFolder = v;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian.Setting(containerEl).setName("Date format").setDesc("Moment.js format for filenames. Default: YYYY-MM-DD").addText((t) => t.setPlaceholder("YYYY-MM-DD").setValue(this.plugin.settings.dailyNoteDateFormat).onChange(async (v) => {
-      this.plugin.settings.dailyNoteDateFormat = v;
-      await this.plugin.saveSettings();
-    }));
+    new import_obsidian.Setting(containerEl).setName("Daily notes folder").setDesc("Leave blank for vault root").addText((t) => {
+      t.setPlaceholder("Daily Notes/").setValue(this.plugin.settings.dailyNoteFolder);
+      t.onChange(debounce(async (v) => {
+        this.plugin.settings.dailyNoteFolder = v;
+        await this.plugin.saveSettings();
+      }, 800));
+    });
+    new import_obsidian.Setting(containerEl).setName("Date format").setDesc("Moment.js format for filenames. Default: YYYY-MM-DD").addText((t) => {
+      t.setPlaceholder("YYYY-MM-DD").setValue(this.plugin.settings.dailyNoteDateFormat);
+      t.onChange(debounce(async (v) => {
+        this.plugin.settings.dailyNoteDateFormat = v;
+        await this.plugin.saveSettings();
+      }, 800));
+    });
   }
 };
 var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
