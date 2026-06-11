@@ -1034,42 +1034,41 @@ export class ContributionsView extends ItemView {
     const t = this.tooltipEl!;
     t.addClass("gh-tooltip--modern");
 
-    // Date header
     t.createEl("div", { cls: "gh-tip-date", text: moment(day.date).format("MMM D, YYYY") });
 
     if (day.count === 0) {
       t.createEl("div", { cls: "gh-tip-no-contrib", text: "No contributions" });
-      return;
+        return;
     }
 
-    // Count
     const countRow = t.createDiv({ cls: "gh-tip-count-row" });
     countRow.createEl("span", { cls: "gh-tip-count", text: String(day.count) });
     countRow.createEl("span", { cls: "gh-tip-count-lbl", text: ` contribution${day.count !== 1 ? "s" : ""}` });
 
-    // Source breakdown
+    const ghSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`;
+    const localSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/></svg>`;
+
     if (showSources && (day.githubCount > 0 || day.localCount > 0)) {
       const sources = t.createDiv({ cls: "gh-tip-sources" });
       if (day.githubCount > 0) {
         const row = sources.createDiv({ cls: "gh-tip-source-row" });
-        const ghIco = row.createEl("span", { cls: "gh-tip-source-icon" });
-        ghIco.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`;
+        const ico = row.createEl("span", { cls: "gh-tip-source-icon" });
+        ico.innerHTML = ghSvg;
         row.createEl("span", { cls: "gh-tip-source-lbl", text: "GitHub" });
         row.createEl("span", { cls: "gh-tip-source-val", text: String(day.githubCount) });
       }
       if (day.localCount > 0) {
         const row = sources.createDiv({ cls: "gh-tip-source-row" });
-        const localIco = row.createEl("span", { cls: "gh-tip-source-icon" });
-        localIco.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/></svg>`;
+        const ico = row.createEl("span", { cls: "gh-tip-source-icon" });
+        ico.innerHTML = localSvg;
         row.createEl("span", { cls: "gh-tip-source-lbl", text: "Local" });
         row.createEl("span", { cls: "gh-tip-source-val", text: String(day.localCount) });
       }
     }
 
-    // Divider + repos
     if (repoEntries.length > 0) {
       t.createDiv({ cls: "gh-tip-divider" });
-      const repoColors = ["#f59e0b", "#3b82f6", "#a855f7", "#10b981", "#ef4444"];
+      const repoColors = ["#3fb950", "#3b82f6", "#a855f7", "#f59e0b", "#ef4444"];
       repoEntries.forEach(([repo, count], i) => {
         const row = t.createDiv({ cls: "gh-tip-repo-row" });
         const dot = row.createEl("span", { cls: "gh-tip-dot" });
@@ -1078,6 +1077,7 @@ export class ContributionsView extends ItemView {
         row.createEl("span", { cls: "gh-tip-repo-count", text: `(${count})` });
       });
     }
+
   }
 
   private renderLegend(container: HTMLElement) {
@@ -1588,30 +1588,30 @@ body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2
 .gh-con-repo-count{color:#8b949e;font-size:10px}
 .gh-con-hint{font-size:9px;color:#484f58;margin-top:6px;font-style:italic}
 .gh-con-no-contrib{font-size:12px;color:#8b949e}
-.gh-tooltip--modern{white-space:normal;padding:12px 14px;border-radius:10px;background:#1c1f23;border:1px solid rgba(255,255,255,0.12);box-shadow:0 4px 20px rgba(0,0,0,.4);min-width:160px;font-family:var(--font-interface)}
-.theme-light .gh-tooltip--modern{background:#2a2d31;border-color:rgba(255,255,255,0.15)}
-/* Date — small, muted */
-.gh-tip-date{font-size:11px;font-weight:400;color:#cdd9e5;margin-bottom:6px}
-/* Main count — green and prominent */
-.gh-tip-count-row{display:flex;align-items:baseline;gap:4px;margin-bottom:7px}
-.gh-tip-count{font-size:15px;font-weight:700;color:#3fb950}
-.gh-tip-count-lbl{font-size:12px;color:#fff;margin-left:3px}
-/* GitHub / Local source rows */
-.gh-tip-sources{display:flex;flex-direction:column;gap:3px;margin-bottom:4px}
-.gh-tip-source-row{display:flex;align-items:center;gap:6px;font-size:12px}
-.gh-tip-source-icon{color:#8b949e;width:13px;display:flex;align-items:center;flex-shrink:0}
+.gh-tooltip--modern{white-space:normal;padding:12px 14px;border-radius:10px;background:#161b22;border:1px solid rgba(255,255,255,0.12);box-shadow:0 8px 32px rgba(0,0,0,.6);min-width:190px;font-family:var(--font-interface)}
+.theme-light .gh-tooltip--modern{background:#1c2128;border-color:rgba(255,255,255,0.15)}
+/* Date */
+.gh-tip-date{font-size:13px;font-weight:600;color:#fff;margin-bottom:6px}
+/* Count row */
+.gh-tip-count-row{display:flex;align-items:baseline;gap:4px;margin-bottom:10px}
+.gh-tip-count{font-size:18px;font-weight:700;color:#3fb950}
+.gh-tip-count-lbl{font-size:13px;color:#fff;margin-left:3px;font-weight:400}
+/* Source section */
+.gh-tip-section{margin-bottom:8px}
+.gh-tip-source-row{display:flex;align-items:center;gap:8px;font-size:13px}
+.gh-tip-source-icon{color:#6e7681;width:14px;display:flex;align-items:center;flex-shrink:0}
 .gh-tip-source-icon svg{display:block}
-.gh-tip-source-lbl{flex:1}
-.gh-tip-source-lbl{color:#8b949e}
-.gh-tip-source-val{color:#3fb950;font-weight:600}
+.gh-tip-source-lbl{flex:1;color:#fff;font-weight:400}
+.gh-tip-source-val{color:#fff;font-weight:500;min-width:16px;text-align:right}
+/* Repo rows — colored dot, monospace name, gray count */
+.gh-tip-repo-row{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:5px}
+.gh-tip-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.gh-tip-repo-name{color:#fff;flex:1;font-family:var(--font-monospace);font-size:11px}
+.gh-tip-repo-count{color:#6e7681;font-size:11px}
 /* Divider */
 .gh-tip-divider{height:1px;background:rgba(255,255,255,0.1);margin:8px 0}
-/* Repo rows */
-.gh-tip-repo-row{display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:4px}
-.gh-tip-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-.gh-tip-repo-name{color:#cdd9e5;flex:1;font-family:var(--font-monospace);font-size:11px}
-.gh-tip-repo-count{color:#8b949e;font-size:11px}
-.gh-tip-no-contrib{font-size:12px;color:#8b949e}
+/* Hint */
+.gh-tip-no-contrib{font-size:12px;color:#6e7681}
     `;
     document.head.appendChild(style);
   }
