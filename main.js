@@ -70,7 +70,7 @@ var PALETTES = {
     dark: ["var(--background-modifier-border)", "#1a5e2a", "#21a045", "#32d463", "#7fffb0"],
     light: ["#ebedf0", "#b6f0c2", "#3dd668", "#1a9e40", "#0a5c25"]
   },
-  "colorblind": {
+  "cobalt": {
     dark: ["var(--background-modifier-border)", "#0a3a6b", "#0e6eb5", "#1ab3d8", "#57e8f5"],
     light: ["#edf4fb", "#b3d4f0", "#4aa8e0", "#1478c8", "#064a8a"]
   },
@@ -84,50 +84,70 @@ var PALETTES = {
   }
 };
 async function requestDeviceCode() {
-  const res = await (0, import_obsidian.requestUrl)({
-    url: GITHUB_DEVICE_URL,
-    method: "POST",
-    headers: { "Accept": "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: "read:user" })
-  });
+  let res;
+  try {
+    res = await (0, import_obsidian.requestUrl)({
+      url: GITHUB_DEVICE_URL,
+      method: "POST",
+      headers: { "Accept": "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: "read:user" })
+    });
+  } catch (e) {
+    throw new Error("Could not reach GitHub. Check your internet connection.");
+  }
   if (res.status !== 200)
-    throw new Error(`GitHub device flow error: ${res.status}`);
+    throw new Error(`GitHub returned an error (${res.status}). Try again.`);
   return res.json;
 }
-async function pollForToken(deviceCode, intervalSecs, onCancel) {
-  var _a;
+async function pollForToken(deviceCode, intervalSecs, expiresIn, onCancel) {
+  var _a, _b;
   const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-  const pollInterval = Math.max(intervalSecs, 5) * 1e3;
+  let currentInterval = Math.max(intervalSecs, 5) * 1e3;
+  const deadline = Date.now() + expiresIn * 1e3;
   while (true) {
     if (onCancel())
       throw new Error("Cancelled");
-    await delay(pollInterval);
+    await delay(currentInterval);
     if (onCancel())
       throw new Error("Cancelled");
-    const res = await (0, import_obsidian.requestUrl)({
-      url: GITHUB_TOKEN_URL,
-      method: "POST",
-      headers: { "Accept": "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
-        device_code: deviceCode,
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code"
-      })
-    });
-    const data = res.json;
-    if (data.access_token)
-      return data.access_token;
-    if (data.error === "authorization_pending")
-      continue;
-    if (data.error === "slow_down") {
+    if (Date.now() > deadline)
+      throw new Error("Code expired. Please try again.");
+    let data;
+    try {
+      const res = await (0, import_obsidian.requestUrl)({
+        url: GITHUB_TOKEN_URL,
+        method: "POST",
+        headers: { "Accept": "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: GITHUB_CLIENT_ID,
+          device_code: deviceCode,
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code"
+        })
+      });
+      data = res.json;
+    } catch (e) {
       await delay(5e3);
+      if (onCancel())
+        throw new Error("Cancelled");
       continue;
     }
-    if (data.error === "expired_token")
-      throw new Error("Code expired. Please try again.");
-    if (data.error === "access_denied")
-      throw new Error("Access denied.");
-    throw new Error((_a = data.error_description) != null ? _a : "Unknown OAuth error");
+    if (data.access_token)
+      return data.access_token;
+    switch (data.error) {
+      case "authorization_pending":
+        continue;
+      case "slow_down":
+        currentInterval += 5e3;
+        continue;
+      case "expired_token":
+        throw new Error("Code expired. Please try again.");
+      case "access_denied":
+        throw new Error("Access was denied. You can try again anytime.");
+      case "incorrect_device_code":
+        throw new Error("Invalid device code. Please try again.");
+      default:
+        throw new Error((_b = (_a = data.error_description) != null ? _a : data.error) != null ? _b : "Unknown OAuth error");
+    }
   }
 }
 async function fetchGitHubUsername(token) {
@@ -850,6 +870,7 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
               cancelled = false;
               try {
                 const device = await requestDeviceCode();
+                const expiryMins = Math.floor(device.expires_in / 60);
                 oauthSetting.setDesc(
                   createFragment((f) => {
                     f.appendText("Enter this code at ");
@@ -857,11 +878,11 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
                     f.createEl("br");
                     f.createEl("span", { cls: "gh-oauth-code", text: device.user_code });
                     f.createEl("br");
-                    f.createEl("em", { text: "Waiting for approval\u2026" });
+                    f.createEl("em", { text: `Waiting for approval\u2026 (code expires in ${expiryMins} minutes)` });
                   })
                 );
                 window.open(device.verification_uri);
-                const token = await pollForToken(device.device_code, device.interval, () => cancelled);
+                const token = await pollForToken(device.device_code, device.interval, device.expires_in, () => cancelled);
                 const username = await fetchGitHubUsername(token);
                 this.plugin.settings.githubToken = token;
                 this.plugin.settings.githubUsername = username;
@@ -870,8 +891,10 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
                 this.display();
               } catch (e) {
                 const msg = e.message;
-                if (msg !== "Cancelled") {
-                  oauthSetting.setDesc("Error: " + msg);
+                if (msg === "Cancelled") {
+                  oauthSetting.setDesc("Connection cancelled. Click Connect GitHub to try again.");
+                } else {
+                  oauthSetting.setDesc("\u26A0 " + msg);
                   new import_obsidian.Notice("GitHub connection failed: " + msg);
                 }
                 btn.setButtonText("Connect GitHub").setDisabled(false);
@@ -928,7 +951,7 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
       })
     );
     new import_obsidian.Setting(containerEl).setName("Colour palette").setDesc("Colour scheme for contribution cells").addDropdown(
-      (d) => d.addOption("default", "Default (GitHub greens)").addOption("high-contrast", "High contrast (vivid greens)").addOption("colorblind", "Colorblind friendly (blue to cyan)").addOption("neon", "Neon (purple to yellow)").addOption("ember", "Ember (amber to gold)").setValue(this.plugin.settings.palette).onChange(async (v) => {
+      (d) => d.addOption("default", "Default (GitHub greens)").addOption("high-contrast", "High contrast (vivid greens)").addOption("cobalt", "Cobalt (blue to cyan)").addOption("neon", "Neon (purple to yellow)").addOption("ember", "Ember (amber to gold)").setValue(this.plugin.settings.palette).onChange(async (v) => {
         this.plugin.settings.palette = v;
         await this.plugin.saveSettings();
       })

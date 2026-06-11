@@ -95,7 +95,7 @@ const PRESET_SIZES: Record<SizePreset, { cell: number; gap: number }> = {
 };
 
 // ── Palettes ─────────────────────────────────────────────────────────────────
-type Palette = "default" | "high-contrast" | "colorblind" | "neon" | "ember";
+type Palette = "default" | "high-contrast" | "cobalt" | "neon" | "ember";
 type StatsStyle = "compact" | "default" | "grid";
 
 interface PaletteColors {
@@ -112,7 +112,7 @@ const PALETTES: Record<Palette, PaletteColors> = {
     dark:  ["var(--background-modifier-border)", "#1a5e2a", "#21a045", "#32d463", "#7fffb0"],
     light: ["#ebedf0", "#b6f0c2", "#3dd668", "#1a9e40", "#0a5c25"],
   },
-  "colorblind": {
+  "cobalt": {
     dark:  ["var(--background-modifier-border)", "#0a3a6b", "#0e6eb5", "#1ab3d8", "#57e8f5"],
     light: ["#edf4fb", "#b3d4f0", "#4aa8e0", "#1478c8", "#064a8a"],
   },
@@ -137,47 +137,77 @@ interface DeviceCodeResponse {
 }
 
 async function requestDeviceCode(): Promise<DeviceCodeResponse> {
-  const res = await requestUrl({
-    url: GITHUB_DEVICE_URL,
-    method: "POST",
-    headers: { "Accept": "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: "read:user" }),
-  });
-  if (res.status !== 200) throw new Error(`GitHub device flow error: ${res.status}`);
+  let res;
+  try {
+    res = await requestUrl({
+      url: GITHUB_DEVICE_URL,
+      method: "POST",
+      headers: { "Accept": "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: "read:user" }),
+    });
+  } catch {
+    throw new Error("Could not reach GitHub. Check your internet connection.");
+  }
+  if (res.status !== 200) throw new Error(`GitHub returned an error (${res.status}). Try again.`);
   return res.json;
 }
 
 async function pollForToken(
   deviceCode: string,
   intervalSecs: number,
+  expiresIn: number,
   onCancel: () => boolean
 ): Promise<string> {
   const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
-  const pollInterval = Math.max(intervalSecs, 5) * 1000;
+  let currentInterval = Math.max(intervalSecs, 5) * 1000;
+  const deadline = Date.now() + expiresIn * 1000;
 
   while (true) {
     if (onCancel()) throw new Error("Cancelled");
-    await delay(pollInterval);
+    await delay(currentInterval);
     if (onCancel()) throw new Error("Cancelled");
 
-    const res = await requestUrl({
-      url: GITHUB_TOKEN_URL,
-      method: "POST",
-      headers: { "Accept": "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
-        device_code: deviceCode,
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-      }),
-    });
-    const data = res.json;
+    // Check if code has expired client-side before even polling
+    if (Date.now() > deadline) throw new Error("Code expired. Please try again.");
+
+    let data: Record<string, string>;
+    try {
+      const res = await requestUrl({
+        url: GITHUB_TOKEN_URL,
+        method: "POST",
+        headers: { "Accept": "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: GITHUB_CLIENT_ID,
+          device_code: deviceCode,
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        }),
+      });
+      data = res.json;
+    } catch {
+      // Network error - wait and retry rather than failing immediately
+      await delay(5000);
+      if (onCancel()) throw new Error("Cancelled");
+      continue;
+    }
 
     if (data.access_token) return data.access_token;
-    if (data.error === "authorization_pending") continue;
-    if (data.error === "slow_down") { await delay(5000); continue; }
-    if (data.error === "expired_token") throw new Error("Code expired. Please try again.");
-    if (data.error === "access_denied") throw new Error("Access denied.");
-    throw new Error(data.error_description ?? "Unknown OAuth error");
+
+    switch (data.error) {
+      case "authorization_pending":
+        continue;
+      case "slow_down":
+        // GitHub asked us to back off - increase interval permanently
+        currentInterval += 5000;
+        continue;
+      case "expired_token":
+        throw new Error("Code expired. Please try again.");
+      case "access_denied":
+        throw new Error("Access was denied. You can try again anytime.");
+      case "incorrect_device_code":
+        throw new Error("Invalid device code. Please try again.");
+      default:
+        throw new Error(data.error_description ?? data.error ?? "Unknown OAuth error");
+    }
   }
 }
 
@@ -979,6 +1009,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
                 const device = await requestDeviceCode();
 
                 // Show the user code prominently
+                const expiryMins = Math.floor(device.expires_in / 60);
                 oauthSetting.setDesc(
                   createFragment(f => {
                     f.appendText("Enter this code at ");
@@ -986,7 +1017,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
                     f.createEl("br");
                     f.createEl("span", { cls: "gh-oauth-code", text: device.user_code });
                     f.createEl("br");
-                    f.createEl("em", { text: "Waiting for approval…" });
+                    f.createEl("em", { text: `Waiting for approval… (code expires in ${expiryMins} minutes)` });
                   })
                 );
 
@@ -995,7 +1026,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
                 (window as any).open(device.verification_uri);
 
                 // Poll for token
-                const token = await pollForToken(device.device_code, device.interval, () => cancelled);
+                const token = await pollForToken(device.device_code, device.interval, device.expires_in, () => cancelled);
                 const username = await fetchGitHubUsername(token);
 
                 this.plugin.settings.githubToken = token;
@@ -1005,8 +1036,10 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
                 this.display();
               } catch (e) {
                 const msg = (e as Error).message;
-                if (msg !== "Cancelled") {
-                  oauthSetting.setDesc("Error: " + msg);
+                if (msg === "Cancelled") {
+                  oauthSetting.setDesc("Connection cancelled. Click Connect GitHub to try again.");
+                } else {
+                  oauthSetting.setDesc("⚠ " + msg);
                   new Notice("GitHub connection failed: " + msg);
                 }
                 btn.setButtonText("Connect GitHub").setDisabled(false);
@@ -1088,7 +1121,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
       .addDropdown(d => d
         .addOption("default",       "Default (GitHub greens)")
         .addOption("high-contrast", "High contrast (vivid greens)")
-        .addOption("colorblind",    "Colorblind friendly (blue to cyan)")
+        .addOption("cobalt",        "Cobalt (blue to cyan)")
         .addOption("neon",          "Neon (purple to yellow)")
         .addOption("ember",         "Ember (amber to gold)")
         .setValue(this.plugin.settings.palette)
