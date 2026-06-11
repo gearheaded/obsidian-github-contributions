@@ -31,10 +31,10 @@ module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
 var VIEW_TYPE = "github-contributions";
 var GITHUB_GRAPHQL = "https://api.github.com/graphql";
-var GITHUB_CLIENT_ID = "Ov23litfj5GbQ8mw81VV";
 var GITHUB_DEVICE_URL = "https://github.com/login/device/code";
 var GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
 var GITHUB_USER_URL = "https://api.github.com/user";
+var GITHUB_CLIENT_ID = "Ov23litfj5GbQ8mw81VV";
 var MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 var DEFAULT_SETTINGS = {
   authMethod: "oauth",
@@ -60,7 +60,7 @@ var PRESET_SIZES = {
   "medium": { cell: 11, gap: 2 },
   "large": { cell: 14, gap: 3 },
   "fit": { cell: 0, gap: 2 }
-  // calculated at render time
+  // sentinel — calculated at render time
 };
 var PALETTES = {
   "classic": {
@@ -392,6 +392,7 @@ function daysSinceLastCommit(days) {
   return null;
 }
 function buildDemoData(year) {
+  var _a, _b;
   const days = /* @__PURE__ */ new Map();
   const isLeap = year % 4 === 0 && year % 100 !== 0 || year % 400 === 0;
   const daysInYear = isLeap ? 366 : 365;
@@ -400,28 +401,54 @@ function buildDemoData(year) {
     seed = seed * 1664525 + 1013904223 & 4294967295;
     return (seed >>> 0) / 4294967295;
   };
-  const demoRepos = ["my-project", "obsidian-plugin", "dotfiles"];
+  const ghRepos = ["my-project", "obsidian-plugin"];
+  const localRepos = ["dotfiles", "personal-vault"];
   for (let i = 0; i < daysInYear; i++) {
     const d = new Date(year, 0, i + 1);
     const dateStr = `${year}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const r = rand();
     const recencyBoost = i / daysInYear;
-    const active = r < 0.45 + recencyBoost * 0.3;
-    if (!active)
+    if (rand() >= 0.45 + recencyBoost * 0.3)
       continue;
-    const count = Math.floor(rand() * 8) + 1;
+    const totalCount = Math.floor(rand() * 10) + 1;
+    const ghCount = Math.floor(rand() * totalCount);
+    const localCount = totalCount - ghCount;
     const repos = {};
-    let remaining = count;
-    for (const repo of demoRepos) {
-      if (remaining <= 0)
-        break;
-      const n = Math.min(remaining, Math.floor(rand() * 4) + 1);
-      if (rand() > 0.4) {
-        repos[repo] = n;
-        remaining -= n;
+    if (ghCount > 0) {
+      let rem = ghCount;
+      for (let ri = 0; ri < ghRepos.length; ri++) {
+        if (rem <= 0)
+          break;
+        const n = ri === ghRepos.length - 1 ? rem : Math.min(rem, Math.floor(rand() * rem) + 1);
+        if (n > 0 && rand() > 0.3) {
+          repos[ghRepos[ri]] = n;
+          rem -= n;
+        }
       }
+      if (rem > 0)
+        repos[ghRepos[0]] = ((_a = repos[ghRepos[0]]) != null ? _a : 0) + rem;
     }
-    days.set(dateStr, { date: dateStr, count, githubCount: count, localCount: 0, repos });
+    if (localCount > 0) {
+      let rem = localCount;
+      for (let ri = 0; ri < localRepos.length; ri++) {
+        if (rem <= 0)
+          break;
+        const n = ri === localRepos.length - 1 ? rem : Math.min(rem, Math.floor(rand() * rem) + 1);
+        if (n > 0 && rand() > 0.3) {
+          repos[localRepos[ri]] = n;
+          rem -= n;
+        }
+      }
+      if (rem > 0)
+        repos[localRepos[0]] = ((_b = repos[localRepos[0]]) != null ? _b : 0) + rem;
+    }
+    const repoTotal = Object.values(repos).reduce((a, b) => a + b, 0);
+    days.set(dateStr, {
+      date: dateStr,
+      count: repoTotal,
+      githubCount: ghCount,
+      localCount,
+      repos
+    });
   }
   return days;
 }
@@ -733,13 +760,13 @@ var ContributionsView = class extends import_obsidian.ItemView {
     if (!this.tooltipEl)
       return;
     const s = this.plugin.settings;
-    const dateStr = (0, import_obsidian.moment)(day.date).format("YYYY-MM-DD");
+    const dateStr = (0, import_obsidian.moment)(day.date).format("MMM D, YYYY");
     const lines = [dateStr];
     if (day.count === 0) {
       lines.push("No contributions");
     } else {
       lines.push(`${day.count} contribution${day.count !== 1 ? "s" : ""}`);
-      if (s.dataSource === "both") {
+      if (s.dataSource === "both" || s.demoMode) {
         if (day.githubCount > 0)
           lines.push(`  GitHub: ${day.githubCount}`);
         if (day.localCount > 0)
@@ -761,14 +788,16 @@ var ContributionsView = class extends import_obsidian.ItemView {
       }
     });
     this.tooltipEl.style.display = "block";
-    this.tooltipEl.style.top = e.pageY - 34 + "px";
+    this.tooltipEl.style.visibility = "hidden";
     const tooltipWidth = this.tooltipEl.offsetWidth || 180;
+    const tooltipHeight = this.tooltipEl.offsetHeight || 80;
     const spaceOnRight = window.innerWidth - e.pageX;
-    if (spaceOnRight < tooltipWidth + 20) {
-      this.tooltipEl.style.left = e.pageX - tooltipWidth - 12 + "px";
-    } else {
-      this.tooltipEl.style.left = e.pageX + 12 + "px";
-    }
+    const left = spaceOnRight < tooltipWidth + 20 ? e.pageX - tooltipWidth - 12 : e.pageX + 12;
+    const spaceBelow = window.innerHeight - e.pageY;
+    const top = spaceBelow < tooltipHeight + 20 ? e.pageY - tooltipHeight - 8 : e.pageY - 34;
+    this.tooltipEl.style.left = left + "px";
+    this.tooltipEl.style.top = top + "px";
+    this.tooltipEl.style.visibility = "visible";
   }
   renderLegend(container) {
     const { cell, gap } = this.getCellSize();

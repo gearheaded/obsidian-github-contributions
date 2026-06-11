@@ -14,13 +14,20 @@ import {
 // ########################################################################
 // Constants
 // ########################################################################
+// Unique identifier for the Obsidian sidebar view — must match registerView() call
 const VIEW_TYPE = "github-contributions";
-const GITHUB_GRAPHQL = "https://api.github.com/graphql";
-const GITHUB_CLIENT_ID = "Ov23litfj5GbQ8mw81VV";
+
+// GitHub API endpoints
+const GITHUB_GRAPHQL    = "https://api.github.com/graphql";
 const GITHUB_DEVICE_URL = "https://github.com/login/device/code";
 const GITHUB_TOKEN_URL  = "https://github.com/login/oauth/access_token";
 const GITHUB_USER_URL   = "https://api.github.com/user";
-const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+// OAuth App Client ID — registered at github.com/settings/developers
+// Device flow does NOT require a client secret, only the Client ID
+const GITHUB_CLIENT_ID = "Ov23litfj5GbQ8mw81VV";
+
+const MONTHS       = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // ########################################################################
@@ -30,12 +37,15 @@ type SizePreset = "ultra-compact" | "compact" | "medium" | "large" | "fit";
 type ViewMode = "year" | "month";
 type DataSource = "github" | "local" | "both";
 
+// Unified data structure for a single day, merging GitHub and local git data.
+// count = githubCount + localCount (always kept in sync).
+// repos maps each repo name to its commit count for that day.
 interface DayData {
-  date: string;
-  count: number;
-  githubCount: number;
-  localCount: number;
-  repos: Record<string, number>; // repoName -> commit count
+  date: string;            // ISO format YYYY-MM-DD
+  count: number;           // total contributions (github + local)
+  githubCount: number;     // contributions from GitHub API
+  localCount: number;      // contributions from local git log
+  repos: Record<string, number>; // per-repo breakdown, shown in tooltip
 }
 
 interface StreakInfo {
@@ -43,10 +53,11 @@ interface StreakInfo {
   longest: number;
 }
 
+// Represents a discovered local git repository
 interface LocalRepo {
-  name: string;
-  path: string;
-  lastCommit: string | null; // ISO date
+  name: string;             // folder name, used as display label
+  path: string;             // absolute path on disk
+  lastCommit: string | null; // date of most recent commit (ISO), or null if no commits
 }
 
 interface GitHubContributionsSettings {
@@ -91,13 +102,15 @@ const DEFAULT_SETTINGS: GitHubContributionsSettings = {
   dailyNoteDateFormat: "YYYY-MM-DD",
 };
 
-// Cell sizes per preset
+// Pixel dimensions for each size preset.
+// "fit" uses cell:0 as a sentinel — actual size is calculated at render time
+// based on the panel's current width via ResizeObserver.
 const PRESET_SIZES: Record<SizePreset, { cell: number; gap: number }> = {
   "ultra-compact": { cell: 7,  gap: 1 },
   "compact":       { cell: 9,  gap: 1 },
   "medium":        { cell: 11, gap: 2 },
   "large":         { cell: 14, gap: 3 },
-  "fit":           { cell: 0,  gap: 2 }, // calculated at render time
+  "fit":           { cell: 0,  gap: 2 }, // sentinel — calculated at render time
 };
 
 // ########################################################################
@@ -106,9 +119,14 @@ const PRESET_SIZES: Record<SizePreset, { cell: number; gap: number }> = {
 type Palette = "classic" | "high-contrast" | "cobalt" | "neon" | "ember";
 type StatsStyle = "compact" | "default" | "grid";
 
+// Each palette has 5 colours for contribution levels 0–4.
+// Level 0 = no contributions (empty cell), level 4 = highest activity.
+// Separate dark/light variants so the graph respects Obsidian's theme.
+// These are injected as CSS custom properties (--gh-c0 through --gh-c4)
+// on <body> so they can be swapped without re-rendering the grid.
 interface PaletteColors {
-  dark:  [string, string, string, string, string]; // levels 0-4
-  light: [string, string, string, string, string];
+  dark:  [string, string, string, string, string]; // levels 0-4, dark theme
+  light: [string, string, string, string, string]; // levels 0-4, light theme
 }
 
 const PALETTES: Record<Palette, PaletteColors> = {
@@ -137,6 +155,9 @@ const PALETTES: Record<Palette, PaletteColors> = {
 // ########################################################################
 // Helpers
 // ########################################################################
+// Generic debounce utility — delays fn execution until ms milliseconds after
+// the last call. Used on text input fields (repo root, daily notes folder, date
+// format) to avoid triggering expensive saves/scans on every keystroke.
 function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number): T {
   let timer: ReturnType<typeof setTimeout>;
   return ((...args: unknown[]) => {
@@ -157,6 +178,10 @@ interface DeviceCodeResponse {
   interval: number;
 }
 
+// Step 1 of OAuth device flow: request a device code and user code from GitHub.
+// We use Obsidian's requestUrl (not fetch) because the device flow endpoint
+// doesn't have CORS headers, so direct fetch() calls from Obsidian's webview fail.
+// Returns the user_code to display, device_code to poll with, and expiry/interval.
 async function requestDeviceCode(): Promise<DeviceCodeResponse> {
   let res;
   try {
@@ -173,6 +198,11 @@ async function requestDeviceCode(): Promise<DeviceCodeResponse> {
   return res.json;
 }
 
+// Step 2 of OAuth device flow: poll GitHub until the user approves or the code expires.
+// GitHub's spec requires respecting the interval and backing off on slow_down responses.
+// onCancel is checked before each poll so the Cancel button works immediately.
+// Network errors retry silently rather than failing — a brief connection hiccup
+// shouldn't kill the whole auth flow.
 async function pollForToken(
   deviceCode: string,
   intervalSecs: number,
@@ -180,7 +210,7 @@ async function pollForToken(
   onCancel: () => boolean
 ): Promise<string> {
   const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
-  let currentInterval = Math.max(intervalSecs, 5) * 1000;
+  let currentInterval = Math.max(intervalSecs, 5) * 1000; // minimum 5s per GitHub spec
   const deadline = Date.now() + expiresIn * 1000;
 
   while (true) {
@@ -244,6 +274,10 @@ async function fetchGitHubUsername(token: string): Promise<string> {
 // ########################################################################
 // GitHub API
 // ########################################################################
+// Fetches the full year's contribution calendar from GitHub's GraphQL API.
+// Returns a Map<dateString, count> for easy merging with local git data.
+// Uses regular fetch (not requestUrl) because the GraphQL API has proper CORS headers.
+// Only requests the minimum data needed — no PR/issue/review data, just the calendar.
 async function fetchGitHubContributions(
   username: string,
   token: string,
@@ -275,10 +309,15 @@ async function fetchGitHubContributions(
 // Local Git
 // ########################################################################
 
-// Use Obsidian's adapter to run shell commands (desktop only via child_process via require)
+// window.require is available in Obsidian desktop (Electron) but not on mobile.
+// All local git functionality is gated behind this check so the plugin
+// loads safely on mobile without crashing.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const isDesktop = !!(window as any).require;
 
+// Runs a git command in the given directory and returns stdout as a string.
+// Returns empty string on any error (non-git directory, git not installed, timeout).
+// Timeout is set to 8s to handle slow network-mounted drives.
 function runGit(args: string, cwd: string): string {
   if (!isDesktop) return "";
   try {
@@ -295,10 +334,14 @@ function isGitRepo(path: string): boolean {
   return result.trim() === "true";
 }
 
+// Recursively scans rootPath for git repositories up to maxDepth levels deep.
+// Stops recursing into a folder once a .git directory is found (repos don't nest).
+// Hidden folders (starting with ".") are skipped to avoid scanning .git internals.
+// maxDepth === 0 means unlimited depth — warn users this can be slow on large drives.
+// Uses Node's fs.readdirSync via Electron's require — desktop only.
 async function discoverRepos(rootPath: string, maxDepth = 2): Promise<LocalRepo[]> {
   if (!isDesktop) return [];
   const repos: LocalRepo[] = [];
-  // Use find-like approach: list subdirectories up to maxDepth levels deep that contain .git
   // maxDepth === 0 means unlimited
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -335,9 +378,13 @@ async function discoverRepos(rootPath: string, maxDepth = 2): Promise<LocalRepo[
   return repos;
 }
 
+// Gets commit dates for a single repo in the given year.
+// IMPORTANT: git's --after and --before flags are EXCLUSIVE, so we extend the
+// range by one day on each side and then filter to the target year in code.
+// This ensures Jan 1 and Dec 31 commits are never accidentally dropped.
 function fetchLocalCommits(repo: LocalRepo, year: number): Map<string, number> {
   const map = new Map<string, number>();
-  // Use day before/after to make range inclusive (--after/--before are exclusive in git)
+  // Widen range by 1 day each side — git's --after/--before are exclusive
   const after  = `${year - 1}-12-31`;
   const before = `${year + 1}-01-01`;
   const raw = runGit(
@@ -356,6 +403,11 @@ function fetchLocalCommits(repo: LocalRepo, year: number): Map<string, number> {
 // ########################################################################
 // Build unified day map
 // ########################################################################
+// Merges GitHub contribution data and local git commit data into a unified
+// Map<dateString, DayData> for the given year. Either source can be disabled
+// in settings, in which case only the enabled source is fetched.
+// GitHub contributions don't include per-repo breakdown (the API doesn't expose it),
+// so githubCount is a single number per day. Local commits do have per-repo data.
 async function buildDayMap(
   settings: GitHubContributionsSettings,
   year: number,
@@ -403,8 +455,13 @@ async function buildDayMap(
 // ########################################################################
 // Generate full year week structure
 // ########################################################################
+// Builds the week-column structure for the year view grid.
+// GitHub's contribution graph starts on Sunday — the grid is padded at the start
+// with empty cells so the first real day lands in the correct column.
+// Returns an array of weeks, each week being 7 DayData items (Sun→Sat).
+// Empty padding cells have date:"" and all counts 0.
 function buildYearWeeks(year: number, days: Map<string, DayData>): DayData[][] {
-  // Build array of all dates in the year, padded to start on Sunday
+  // Pad the start so Jan 1 falls on the correct day-of-week column
   const jan1 = new Date(year, 0, 1);
   const startOffset = jan1.getDay(); // 0=Sun
   const weeks: DayData[][] = [];
@@ -429,8 +486,10 @@ function buildYearWeeks(year: number, days: Map<string, DayData>): DayData[][] {
   return weeks;
 }
 
+// Builds the week-row structure for the month view grid.
+// Same Sunday-start padding logic as buildYearWeeks, but scoped to one month.
+// month is 0-indexed (0 = January, 11 = December).
 function buildMonthDays(year: number, month: number, days: Map<string, DayData>): DayData[][] {
-  // month is 0-indexed
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const weeks: DayData[][] = [];
@@ -453,6 +512,10 @@ function buildMonthDays(year: number, month: number, days: Map<string, DayData>)
 // ########################################################################
 // Streaks
 // ########################################################################
+// Calculates current and longest contribution streaks for the given year.
+// Current streak: consecutive active days ending today (or yesterday if today
+// has no contributions yet — we don't penalise an in-progress day).
+// Longest streak: the longest consecutive run of active days in the year.
 function calculateStreaks(days: Map<string, DayData>, year: number): StreakInfo {
   const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
   const daysInYear = isLeap ? 366 : 365;
@@ -482,6 +545,8 @@ function calculateStreaks(days: Map<string, DayData>, year: number): StreakInfo 
   return { current, longest };
 }
 
+// Returns the number of days since the most recent contribution, or null if
+// no contributions exist in the loaded data. Only looks at dates up to today.
 function daysSinceLastCommit(days: Map<string, DayData>): number | null {
   const today = moment().format("YYYY-MM-DD");
   const sorted = [...days.entries()].filter(([d]) => d <= today && d !== "").sort((a,b) => b[0].localeCompare(a[0]));
@@ -496,32 +561,68 @@ function daysSinceLastCommit(days: Map<string, DayData>): number | null {
 // ########################################################################
 // Demo mode
 // ########################################################################
+// Generates realistic fake contribution data for demo mode / screenshots.
+// Uses a seeded LCG pseudo-random number generator so the output is always
+// the same for a given year — the graph looks consistent across refreshes.
+// Activity is weighted toward recent months (recencyBoost) to look natural.
+// Data mirrors the real DayData structure exactly: split between GitHub repos
+// and local repos, with repo counts guaranteed to sum to the day total.
 function buildDemoData(year: number): Map<string, DayData> {
   const days = new Map<string, DayData>();
   const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
   const daysInYear = isLeap ? 366 : 365;
-  // Seeded pseudo-random for reproducible demo
+  // Seeded LCG — same seed = same graph every time
   let seed = 42;
   const rand = () => { seed = (seed * 1664525 + 1013904223) & 0xffffffff; return (seed >>> 0) / 0xffffffff; };
-  const demoRepos = ["my-project", "obsidian-plugin", "dotfiles"];
+
+  // Demo repos split between GitHub and local
+  const ghRepos   = ["my-project", "obsidian-plugin"];
+  const localRepos = ["dotfiles", "personal-vault"];
 
   for (let i = 0; i < daysInYear; i++) {
     const d = new Date(year, 0, i + 1);
     const dateStr = `${year}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    const r = rand();
-    // ~60% chance of activity, weighted toward recent months
     const recencyBoost = i / daysInYear;
-    const active = r < (0.45 + recencyBoost * 0.3);
-    if (!active) continue;
-    const count = Math.floor(rand() * 8) + 1;
+    if (rand() >= (0.45 + recencyBoost * 0.3)) continue;
+
+    // Split total between GitHub and local
+    const totalCount = Math.floor(rand() * 10) + 1;
+    const ghCount    = Math.floor(rand() * totalCount);
+    const localCount = totalCount - ghCount;
+
+    // Distribute GitHub count across gh repos — always sums to ghCount
     const repos: Record<string, number> = {};
-    let remaining = count;
-    for (const repo of demoRepos) {
-      if (remaining <= 0) break;
-      const n = Math.min(remaining, Math.floor(rand() * 4) + 1);
-      if (rand() > 0.4) { repos[repo] = n; remaining -= n; }
+    if (ghCount > 0) {
+      let rem = ghCount;
+      for (let ri = 0; ri < ghRepos.length; ri++) {
+        if (rem <= 0) break;
+        const n = ri === ghRepos.length - 1 ? rem : Math.min(rem, Math.floor(rand() * rem) + 1);
+        if (n > 0 && rand() > 0.3) { repos[ghRepos[ri]] = n; rem -= n; }
+      }
+      // If any remainder left unassigned, add to first repo
+      if (rem > 0) repos[ghRepos[0]] = (repos[ghRepos[0]] ?? 0) + rem;
     }
-    days.set(dateStr, { date: dateStr, count, githubCount: count, localCount: 0, repos });
+
+    // Distribute local count across local repos — always sums to localCount
+    if (localCount > 0) {
+      let rem = localCount;
+      for (let ri = 0; ri < localRepos.length; ri++) {
+        if (rem <= 0) break;
+        const n = ri === localRepos.length - 1 ? rem : Math.min(rem, Math.floor(rand() * rem) + 1);
+        if (n > 0 && rand() > 0.3) { repos[localRepos[ri]] = n; rem -= n; }
+      }
+      if (rem > 0) repos[localRepos[0]] = (repos[localRepos[0]] ?? 0) + rem;
+    }
+
+    // Verify counts are consistent
+    const repoTotal = Object.values(repos).reduce((a, b) => a + b, 0);
+    days.set(dateStr, {
+      date: dateStr,
+      count: repoTotal,
+      githubCount: ghCount,
+      localCount,
+      repos,
+    });
   }
   return days;
 }
@@ -857,19 +958,19 @@ export class ContributionsView extends ItemView {
   private showTooltip(e: MouseEvent, day: DayData) {
     if (!this.tooltipEl) return;
     const s = this.plugin.settings;
-    const dateStr = moment(day.date).format("YYYY-MM-DD");
+    const dateStr = moment(day.date).format("MMM D, YYYY");
     const lines: string[] = [dateStr];
 
     if (day.count === 0) {
       lines.push("No contributions");
     } else {
       lines.push(`${day.count} contribution${day.count !== 1 ? "s" : ""}`);
-      // Per-source breakdown
-      if (s.dataSource === "both") {
+      // Per-source breakdown — only shown when both sources are active
+      if (s.dataSource === "both" || s.demoMode) {
         if (day.githubCount > 0) lines.push(`  GitHub: ${day.githubCount}`);
         if (day.localCount > 0) lines.push(`  Local: ${day.localCount}`);
       }
-      // Per-repo breakdown
+      // Per-repo breakdown, sorted by count descending
       const repoEntries = Object.entries(day.repos).sort((a,b) => b[1]-a[1]);
       for (const [repo, count] of repoEntries) {
         lines.push(`  ${repo} (${count})`);
@@ -886,17 +987,28 @@ export class ContributionsView extends ItemView {
       }
     });
 
+    // Show tooltip first so we can measure its dimensions
     this.tooltipEl.style.display = "block";
-    this.tooltipEl.style.top = e.pageY - 34 + "px";
+    this.tooltipEl.style.visibility = "hidden";
 
-    // Flip to left side if tooltip would overflow the right edge of the window
-    const tooltipWidth = this.tooltipEl.offsetWidth || 180;
+    const tooltipWidth  = this.tooltipEl.offsetWidth  || 180;
+    const tooltipHeight = this.tooltipEl.offsetHeight || 80;
+
+    // Horizontal: flip left if not enough space on the right
     const spaceOnRight = window.innerWidth - e.pageX;
-    if (spaceOnRight < tooltipWidth + 20) {
-      this.tooltipEl.style.left = e.pageX - tooltipWidth - 12 + "px";
-    } else {
-      this.tooltipEl.style.left = e.pageX + 12 + "px";
-    }
+    const left = spaceOnRight < tooltipWidth + 20
+      ? e.pageX - tooltipWidth - 12
+      : e.pageX + 12;
+
+    // Vertical: flip above cursor if tooltip would go off the bottom
+    const spaceBelow = window.innerHeight - e.pageY;
+    const top = spaceBelow < tooltipHeight + 20
+      ? e.pageY - tooltipHeight - 8
+      : e.pageY - 34;
+
+    this.tooltipEl.style.left       = left + "px";
+    this.tooltipEl.style.top        = top  + "px";
+    this.tooltipEl.style.visibility = "visible";
   }
 
   private renderLegend(container: HTMLElement) {
@@ -967,6 +1079,11 @@ export class ContributionsView extends ItemView {
 // ########################################################################
 // Helpers
 // ########################################################################
+// Maps a contribution count to a colour level 0–4.
+// These thresholds roughly mirror GitHub's own contribution graph levels.
+// Level 0 = empty, level 4 = most active. Adjust thresholds here to change
+// how aggressively the graph colours — useful if your commit volume is very
+// high or very low compared to the defaults.
 function countToLevel(n: number): number {
   if (n === 0) return 0;
   if (n <= 2) return 1;

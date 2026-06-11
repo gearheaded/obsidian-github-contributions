@@ -1,6 +1,6 @@
 # GitHub Contributions for Obsidian
 
-View your GitHub and local Git contribution heatmap directly in the Obsidian sidebar - with streak tracking, per-repo tooltips, color palettes, and one-click daily note creation.
+View your GitHub and local Git contribution heatmap directly in the Obsidian sidebar - with streak tracking, per-repo tooltips, color palettes, and one-click daily note creation. Connect quickly using OAuth (recommended) or a Personal Access Token.
 
 ![Palette showcase](media/ss-palettes_labelled.png)
 
@@ -81,6 +81,10 @@ Local Git mode only runs `git log` locally - no data is sent anywhere.
 - Or run the command palette: `GitHub Contributions: Open GitHub Contributions panel`
 - On mobile: use the command palette (swipe down or tap the search icon)
 
+## Daily note integration
+
+Clicking any contribution cell opens the matching daily note. If it doesn't exist yet it's created automatically. Works alongside the core Daily Notes and Periodic Notes plugins - just make sure the folder and date format match.
+
 ## Settings reference
 
 ![Settings page](media/ss-settings.png)
@@ -110,10 +114,6 @@ Local Git mode only runs `git log` locally - no data is sent anywhere.
 |---|---|
 | Daily notes folder | Folder to look for / create daily notes (blank = vault root) |
 | Date format | Moment.js format matching your filenames (default: `YYYY-MM-DD`) |
-
-## Daily note integration
-
-Clicking any contribution cell opens the matching daily note. If it doesn't exist yet it's created automatically. Works alongside the core Daily Notes and Periodic Notes plugins - just make sure the folder and date format match.
 
 ## Privacy
 
