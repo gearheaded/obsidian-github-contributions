@@ -12,9 +12,6 @@ View GitHub and local Git contributions directly in the Obsidian sidebar - compl
 - **Year and month navigation** - flip back through any year since 2008, or browse month by month
 - **Stats bar** - total contributions, current streak, best streak, days since last commit, most recent repo
 - **Hover tooltips** - date, total count, and per-repo breakdown on every cell
-
-![Tooltip showing per-repo breakdown](media/ss-tooltip.png)
-
 - **Click to open daily note** - clicking any day opens (or creates) the matching daily note
 - **Five colour palettes** - Classic (GitHub greens), High Contrast, Cobalt (blue/cyan), Neon (purple/yellow), Ember (amber/gold)
 - **Three stats styles** - Default list, Compact chips, or Grid
