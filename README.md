@@ -2,7 +2,13 @@
 
 View GitHub and local Git contributions directly in the Obsidian sidebar - complete with streak tracking, per-repo tooltips, color palettes, and one-click daily note creation.
 
-![Palette showcase](media/ss-palettes_labelled.png)
+![GitHub Contributions](images/ss-contributions-main.png)
+
+## Themes & Customization
+
+Choose from multiple color palettes and layouts to match your vault.
+
+![Themes](images/ss-contributions-themes.png)
 
 ## Features
 
