@@ -1,79 +1,124 @@
 # GitHub Contributions for Obsidian
 
-View your GitHub contribution heatmap directly in the Obsidian sidebar — with streak tracking, hover tooltips, and one-click daily note creation.
+View your GitHub and local Git contribution heatmap directly in the Obsidian sidebar — with streak tracking, per-repo tooltips, colour palettes, and one-click daily note creation.
 
 ![GitHub contribution graph in Obsidian sidebar]
 
 ## Features
 
-- **Contribution heatmap** - the full year grid, dark/light theme aware
-- **Year navigation** - flip back through any year since 2008
-- **Stats bar** - total contributions, current streak, best streak
-- **Hover tooltips** - date + exact count on every cell
+- **Contribution heatmap** - full year or month view, dark/light theme aware
+- **Local Git support** - scans your local repos and merges commits into the same graph
+- **Year and month navigation** - flip back through any year since 2008, or browse month by month
+- **Stats bar** - total contributions, current streak, best streak, days since last commit, most recent repo
+- **Hover tooltips** - date, total count, and per-repo breakdown on every cell
 - **Click to open daily note** - clicking any day opens (or creates) the matching daily note
-- **Configurable sidebar side** - left or right panel
-- **Shimmer skeleton** while loading
+- **Five colour palettes** - Default (GitHub greens), High Contrast, Cobalt (blue/cyan), Neon (purple/yellow), Ember (amber/gold)
+- **Configurable size** - Ultra compact, Compact, Medium, Large, or Fit to sidebar
+- **Three stats styles** - Default list, Compact chips, or Grid
+- **Demo mode** - generates realistic fake data for screenshots or testing
+- **OAuth connect** - connect GitHub with one click, no token copying required
+- **Mobile safe** - GitHub contributions work on mobile; local Git gracefully disabled
 
 ## Installation
 
-### Manual (until published to the community registry)
+### Community Plugin Registry (recommended)
 
-1. Download the latest release zip from GitHub, or build from source (see below)
-2. Extract the folder into your vault's plugin directory:
+1. Open Obsidian -> **Settings -> Community Plugins -> Browse**
+2. Search for **GitHub Contributions**
+3. Click **Install**, then **Enable**
+4. Open plugin settings and click **Connect GitHub**
+
+### Manual
+
+1. Download `main.js` and `manifest.json` from the latest release
+2. Copy both files into your vault's plugin directory:
    ```
    <YourVault>/.obsidian/plugins/github-contributions/
    ```
-   The folder must contain: `main.js`, `manifest.json`
-3. In Obsidian -> **Settings -> Community Plugins**, enable **GitHub Contributions**
-4. Open the plugin settings and fill in:
-   - **GitHub Username** - your GitHub handle
-   - **Personal Access Token** - a PAT with `read:user` scope (see below)
+3. In Obsidian → **Settings → Community Plugins**, enable **GitHub Contributions**
 
-### Getting a GitHub PAT
+## Connecting GitHub
 
-1. Go to [github.com/settings/tokens](https://github.com/settings/tokens)
-2. Click **Generate new token (classic)**
-3. Give it a name (e.g. `obsidian-contributions`)
-4. Select only the **`read:user`** scope
-5. Click **Generate token** and paste it into the plugin settings
+The recommended way is OAuth - no token copying required:
 
-The token is stored locally in your vault's plugin data - it never leaves your machine except to call the GitHub GraphQL API.
+1. Open plugin settings
+2. Under **Authentication**, select **Connect with GitHub (recommended)**
+3. Click **Connect GitHub**
+4. A code appears in the settings panel - enter it at **github.com/login/device**
+5. Approve in your browser - the plugin connects automatically
+
+### Personal Access Token (advanced)
+
+If you prefer a PAT, switch Authentication to **Personal Access Token** and enter:
+- Your GitHub username
+- A PAT from [github.com/settings/tokens](https://github.com/settings/tokens) with only the `read:user` scope
+
+The token is stored locally in your vault and never leaves your machine except to call the GitHub GraphQL API.
+
+## Local Git Support
+
+To include commits from local repositories:
+
+1. Set **Source** to **Local git only** or **Both**
+2. Set **Local repo root** to a folder containing your git repos (e.g. `C:\Users\You\Projects`)
+3. The plugin scans that folder up to the configured depth and finds all git repos automatically
+
+Local Git mode only runs `git log` locally - no data is sent anywhere.
+
+## Opening the panel
+
+- Click the **GitHub icon** in the ribbon
+- Or run the command palette: `GitHub Contributions: Open GitHub Contributions panel`
+
+## Settings reference
+
+### Data Sources
+| Setting | Description |
+|---|---|
+| Source | GitHub only, Local git only, or Both |
+| Authentication | OAuth (recommended) or Personal Access Token |
+| Local repo root | Root folder to scan for git repositories |
+| Scan depth | How many levels deep to search (2–5, or unlimited) |
+
+### Display
+| Setting | Description |
+|---|---|
+| Sidebar side | Left or right panel |
+| Stats display | Default list, Compact chips, or Grid |
+| Colour palette | Default, High Contrast, Colorblind Friendly, Neon, or Ember |
+| Size | Ultra compact, Compact, Medium, Large, or Fit to sidebar |
+| Default view | Year or Month |
+| Default year | Year shown on first open |
+| Demo mode | Show fake data for screenshots or testing |
+
+### Daily Notes
+| Setting | Description |
+|---|---|
+| Daily notes folder | Folder to look for / create daily notes (blank = vault root) |
+| Date format | Moment.js format matching your filenames (default: `YYYY-MM-DD`) |
+
+## Daily note integration
+
+Clicking any contribution cell opens the matching daily note. If it doesn't exist yet it's created automatically. Works alongside the core Daily Notes and Periodic Notes plugins - just make sure the folder and date format match.
+
+## Privacy
+
+- **GitHub OAuth token** - stored locally, only used to call the GitHub GraphQL API
+- **Local Git mode** - only runs `git log` locally, reads commit metadata only, no data sent anywhere
 
 ## Building from source
 
 ```bash
-git clone https://github.com/you/obsidian-github-contributions
+git clone https://github.com/gearheaded/obsidian-github-contributions
 cd obsidian-github-contributions
 npm install
 npm run build
 ```
 
-Then copy `main.js` and `manifest.json` into your vault's plugin folder.
-
-For live development with hot-reload:
+For live development with auto-rebuild on save:
 ```bash
 npm run dev
 ```
-
-## Settings
-
-| Setting | Description |
-|---|---|
-| GitHub Username | Your GitHub handle |
-| Personal Access Token | PAT with `read:user` scope |
-| Sidebar Side | Left or right panel |
-| Default Year | Year shown on first open (use the ‹ › arrows to change in-panel) |
-| Daily Notes Folder | Folder to look for / create daily notes in (blank = vault root) |
-| Date Format | Moment.js format matching your daily note filenames (default: `YYYY-MM-DD`) |
-
-## Opening the panel
-
-- Click the **GitHub icon** in the ribbon (left sidebar icon strip)
-- Or run the command: `GitHub Contributions: Open GitHub Contributions panel`
-
-## Daily note integration
-
-Clicking any contribution cell opens the matching daily note. If it doesn't exist yet, it's created automatically in your configured daily notes folder using your date format. This works alongside the core Daily Notes and Periodic Notes plugins — just make sure the folder and date format match.
 
 ## License
 

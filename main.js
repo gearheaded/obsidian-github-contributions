@@ -752,8 +752,14 @@ var ContributionsView = class extends import_obsidian.ItemView {
       }
     });
     this.tooltipEl.style.display = "block";
-    this.tooltipEl.style.left = e.pageX + 12 + "px";
     this.tooltipEl.style.top = e.pageY - 34 + "px";
+    const tooltipWidth = this.tooltipEl.offsetWidth || 180;
+    const spaceOnRight = window.innerWidth - e.pageX;
+    if (spaceOnRight < tooltipWidth + 20) {
+      this.tooltipEl.style.left = e.pageX - tooltipWidth - 12 + "px";
+    } else {
+      this.tooltipEl.style.left = e.pageX + 12 + "px";
+    }
   }
   renderLegend(container) {
     const { cell, gap } = this.getCellSize();
