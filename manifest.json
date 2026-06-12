@@ -3,7 +3,7 @@
   "name": "GitHub Contributions",
   "version": "1.0.0",
   "minAppVersion": "0.15.0",
-  "description": "Display GitHub and local Git contribution graphs in the Obsidian sidebar with streak tracking, repository insights, and daily note integration.",
+  "description": "View GitHub and local Git contributions directly in the sidebar with streak tracking, repository breakdowns, color palettes, and daily note integration.",
   "author": "gearheaded",
   "authorUrl": "https://github.com/gearheaded",
   "isDesktopOnly": false
