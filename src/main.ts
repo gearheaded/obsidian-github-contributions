@@ -14,7 +14,7 @@ import {
 // ########################################################################
 // Constants
 // ########################################################################
-// Unique identifier for the Obsidian sidebar view — must match registerView() call
+// Unique identifier for the Obsidian sidebar view - must match registerView() call
 const VIEW_TYPE = "github-contributions";
 
 // GitHub API endpoints
@@ -23,11 +23,10 @@ const GITHUB_DEVICE_URL = "https://github.com/login/device/code";
 const GITHUB_TOKEN_URL  = "https://github.com/login/oauth/access_token";
 const GITHUB_USER_URL   = "https://api.github.com/user";
 
-// OAuth App Client ID — registered at github.com/settings/developers
+// OAuth App Client ID - registered at github.com/settings/developers
 // Device flow does NOT require a client secret, only the Client ID
 const GITHUB_CLIENT_ID = "Ov23litfj5GbQ8mw81VV";
 
-const MONTHS       = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 // ########################################################################
@@ -70,7 +69,7 @@ interface GitHubContributionsSettings {
   localRepoRoot: string;
   scanDepth: number; // 2-5, or 0 = unlimited
   // Display
-  sidebarSide: "left" | "right";
+
   selectedYear: number;
   sizePreset: SizePreset;
   defaultView: ViewMode;
@@ -94,7 +93,7 @@ const DEFAULT_SETTINGS: GitHubContributionsSettings = {
   demoMode: false,
   showLegend: true,
   tooltipStyle: "standard",
-  sidebarSide: "right",
+
   selectedYear: new Date().getFullYear(),
   sizePreset: "medium",
   defaultView: "year",
@@ -105,14 +104,14 @@ const DEFAULT_SETTINGS: GitHubContributionsSettings = {
 };
 
 // Pixel dimensions for each size preset.
-// "fit" uses cell:0 as a sentinel — actual size is calculated at render time
+// "fit" uses cell:0 as a sentinel - actual size is calculated at render time
 // based on the panel's current width via ResizeObserver.
 const PRESET_SIZES: Record<SizePreset, { cell: number; gap: number }> = {
   "ultra-compact": { cell: 7,  gap: 1 },
   "compact":       { cell: 9,  gap: 1 },
   "medium":        { cell: 11, gap: 2 },
   "large":         { cell: 14, gap: 3 },
-  "fit":           { cell: 0,  gap: 2 }, // sentinel — calculated at render time
+  "fit":           { cell: 0,  gap: 2 }, // sentinel - calculated at render time
 };
 
 // ########################################################################
@@ -158,14 +157,14 @@ const PALETTES: Record<Palette, PaletteColors> = {
 // ########################################################################
 // Helpers
 // ########################################################################
-// Generic debounce utility — delays fn execution until ms milliseconds after
+// Generic debounce utility - delays fn execution until ms milliseconds after
 // the last call. Used on text input fields (repo root, daily notes folder, date
 // format) to avoid triggering expensive saves/scans on every keystroke.
 function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number): T {
-  let timer: ReturnType<typeof setTimeout>;
+  let timer = 0;
   return ((...args: unknown[]) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => fn(...args), ms);
   }) as T;
 }
 
@@ -204,7 +203,7 @@ async function requestDeviceCode(): Promise<DeviceCodeResponse> {
 // Step 2 of OAuth device flow: poll GitHub until the user approves or the code expires.
 // GitHub's spec requires respecting the interval and backing off on slow_down responses.
 // onCancel is checked before each poll so the Cancel button works immediately.
-// Network errors retry silently rather than failing — a brief connection hiccup
+// Network errors retry silently rather than failing - a brief connection hiccup
 // shouldn't kill the whole auth flow.
 async function pollForToken(
   deviceCode: string,
@@ -280,7 +279,7 @@ async function fetchGitHubUsername(token: string): Promise<string> {
 // Fetches the full year's contribution calendar from GitHub's GraphQL API.
 // Returns a Map<dateString, count> for easy merging with local git data.
 // Uses regular fetch (not requestUrl) because the GraphQL API has proper CORS headers.
-// Only requests the minimum data needed — no PR/issue/review data, just the calendar.
+// Only requests the minimum data needed - no PR/issue/review data, just the calendar.
 async function fetchGitHubContributions(
   username: string,
   token: string,
@@ -315,7 +314,9 @@ async function fetchGitHubContributions(
 // window.require is available in Obsidian desktop (Electron) but not on mobile.
 // All local git functionality is gated behind this check so the plugin
 // loads safely on mobile without crashing.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// window.require is only available in Obsidian desktop (Electron), not on mobile.
+// This check gates all Node.js/Electron API usage safely.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Electron exposes require on window; no typed alternative
 const isDesktop = !!(window as any).require;
 
 // Runs a git command in the given directory and returns stdout as a string.
@@ -324,7 +325,7 @@ const isDesktop = !!(window as any).require;
 function runGit(args: string, cwd: string): string {
   if (!isDesktop) return "";
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Electron require; no typed alternative exists
     const { execSync } = (window as any).require("child_process");
     return execSync(`git ${args}`, { cwd, timeout: 8000, encoding: "utf8", stdio: ["pipe","pipe","pipe"] });
   } catch {
@@ -332,24 +333,19 @@ function runGit(args: string, cwd: string): string {
   }
 }
 
-function isGitRepo(path: string): boolean {
-  const result = runGit("rev-parse --is-inside-work-tree", path);
-  return result.trim() === "true";
-}
-
 // Recursively scans rootPath for git repositories up to maxDepth levels deep.
 // Stops recursing into a folder once a .git directory is found (repos don't nest).
 // Hidden folders (starting with ".") are skipped to avoid scanning .git internals.
-// maxDepth === 0 means unlimited depth — warn users this can be slow on large drives.
-// Uses Node's fs.readdirSync via Electron's require — desktop only.
+// maxDepth === 0 means unlimited depth - warn users this can be slow on large drives.
+// Uses Node's fs.readdirSync via Electron's require - desktop only.
 async function discoverRepos(rootPath: string, maxDepth = 2): Promise<LocalRepo[]> {
   if (!isDesktop) return [];
   const repos: LocalRepo[] = [];
   // maxDepth === 0 means unlimited
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Electron fs/path modules; no typed alternative
     const fs = (window as any).require("fs");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Electron fs/path modules; no typed alternative
     const path = (window as any).require("path");
 
     const scanDir = (dir: string, depth: number) => {
@@ -387,7 +383,7 @@ async function discoverRepos(rootPath: string, maxDepth = 2): Promise<LocalRepo[
 // This ensures Jan 1 and Dec 31 commits are never accidentally dropped.
 function fetchLocalCommits(repo: LocalRepo, year: number): Map<string, number> {
   const map = new Map<string, number>();
-  // Widen range by 1 day each side — git's --after/--before are exclusive
+  // Widen range by 1 day each side - git's --after/--before are exclusive
   const after  = `${year - 1}-12-31`;
   const before = `${year + 1}-01-01`;
   const raw = runGit(
@@ -459,7 +455,7 @@ async function buildDayMap(
 // Generate full year week structure
 // ########################################################################
 // Builds the week-column structure for the year view grid.
-// GitHub's contribution graph starts on Sunday — the grid is padded at the start
+// GitHub's contribution graph starts on Sunday - the grid is padded at the start
 // with empty cells so the first real day lands in the correct column.
 // Returns an array of weeks, each week being 7 DayData items (Sun→Sat).
 // Empty padding cells have date:"" and all counts 0.
@@ -517,7 +513,7 @@ function buildMonthDays(year: number, month: number, days: Map<string, DayData>)
 // ########################################################################
 // Calculates current and longest contribution streaks for the given year.
 // Current streak: consecutive active days ending today (or yesterday if today
-// has no contributions yet — we don't penalise an in-progress day).
+// has no contributions yet - we don't penalise an in-progress day).
 // Longest streak: the longest consecutive run of active days in the year.
 function calculateStreaks(days: Map<string, DayData>, year: number): StreakInfo {
   const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
@@ -566,7 +562,7 @@ function daysSinceLastCommit(days: Map<string, DayData>): number | null {
 // ########################################################################
 // Generates realistic fake contribution data for demo mode / screenshots.
 // Uses a seeded LCG pseudo-random number generator so the output is always
-// the same for a given year — the graph looks consistent across refreshes.
+// the same for a given year - the graph looks consistent across refreshes.
 // Activity is weighted toward recent months (recencyBoost) to look natural.
 // Data mirrors the real DayData structure exactly: split between GitHub repos
 // and local repos, with repo counts guaranteed to sum to the day total.
@@ -574,7 +570,7 @@ function buildDemoData(year: number): Map<string, DayData> {
   const days = new Map<string, DayData>();
   const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
   const daysInYear = isLeap ? 366 : 365;
-  // Seeded LCG — same seed = same graph every time
+  // Seeded LCG - same seed = same graph every time
   let seed = 42;
   const rand = () => { seed = (seed * 1664525 + 1013904223) & 0xffffffff; return (seed >>> 0) / 0xffffffff; };
 
@@ -593,7 +589,7 @@ function buildDemoData(year: number): Map<string, DayData> {
     const ghCount    = Math.floor(rand() * totalCount);
     const localCount = totalCount - ghCount;
 
-    // Distribute GitHub count across gh repos — always sums to ghCount
+    // Distribute GitHub count across gh repos - always sums to ghCount
     const repos: Record<string, number> = {};
     if (ghCount > 0) {
       let rem = ghCount;
@@ -606,7 +602,7 @@ function buildDemoData(year: number): Map<string, DayData> {
       if (rem > 0) repos[ghRepos[0]] = (repos[ghRepos[0]] ?? 0) + rem;
     }
 
-    // Distribute local count across local repos — always sums to localCount
+    // Distribute local count across local repos - always sums to localCount
     if (localCount > 0) {
       let rem = localCount;
       for (let ri = 0; ri < localRepos.length; ri++) {
@@ -706,7 +702,7 @@ export class ContributionsView extends ItemView {
     container.addClass("gh-contributions-view");
 
     if (!this.tooltipEl) {
-      this.tooltipEl = document.body.createDiv({ cls: "gh-tooltip" });
+      this.tooltipEl = activeDocument.body.createDiv({ cls: "gh-tooltip" });
     }
 
     const s = this.plugin.settings;
@@ -749,7 +745,7 @@ export class ContributionsView extends ItemView {
       this.renderHeader(container);
       this.renderStats(container, { totalGH, totalLocal, streaks, sinceCommit, recentRepo });
 
-      // Repo name line (default style only — compact shows it inline)
+      // Repo name line (default style only - compact shows it inline)
       const style = this.plugin.settings.statsStyle ?? "default";
       if (recentRepo && style === "default") {
         const repoLine = container.createDiv({ cls: "gh-repo-line" });
@@ -889,11 +885,11 @@ export class ContributionsView extends ItemView {
   private renderYearGrid(container: HTMLElement, weeks: DayData[][]) {
     const { cell, gap } = this.getCellSize();
     const graphWrap = container.createDiv({ cls: "gh-graph-wrap" });
-    graphWrap.style.overflowX = "auto";
+    graphWrap.setCssStyles({ overflowX: "auto" });
 
     // Month labels
     const monthRow = graphWrap.createDiv({ cls: "gh-month-row" });
-    monthRow.style.cssText = `display:grid;grid-template-columns:repeat(${weeks.length},${cell}px);gap:${gap}px;margin-bottom:3px`;
+    monthRow.setCssStyles({ display: "grid", gridTemplateColumns: `repeat(${weeks.length},${cell}px)`, gap: gap + "px", marginBottom: "3px" });
 
     let lastMonth = -1;
     weeks.forEach((week, wi) => {
@@ -903,17 +899,16 @@ export class ContributionsView extends ItemView {
       if (m !== lastMonth) {
         lastMonth = m;
         const lbl = monthRow.createEl("span", { cls: "gh-month-lbl", text: MONTHS_SHORT[m] });
-        lbl.style.gridColumn = String(wi + 1);
-        lbl.style.fontSize = Math.max(8, cell - 2) + "px";
+        lbl.setCssStyles({ gridColumn: String(wi + 1), fontSize: Math.max(8, cell - 2) + "px" });
       }
     });
 
     // Grid
     const grid = graphWrap.createDiv({ cls: "gh-grid" });
-    grid.style.cssText = `display:flex;gap:${gap}px`;
+    grid.setCssStyles({ display: "flex", gap: gap + "px" });
     weeks.forEach(week => {
       const col = grid.createDiv({ cls: "gh-col" });
-      col.style.cssText = `display:flex;flex-direction:column;gap:${gap}px`;
+      col.setCssStyles({ display: "flex", flexDirection: "column", gap: gap + "px" });
       week.forEach(day => this.renderCell(col, day, cell));
     });
   }
@@ -925,25 +920,25 @@ export class ContributionsView extends ItemView {
 
     // Day-of-week headers - use same grid columns as cells so they align
     const dowRow = graphWrap.createDiv({ cls: "gh-dow-row" });
-    dowRow.style.cssText = `display:grid;grid-template-columns:${colTemplate};gap:${gap}px;margin-bottom:4px`;
+    dowRow.setCssStyles({ display: "grid", gridTemplateColumns: colTemplate, gap: gap + "px", marginBottom: "4px" });
     ["Su","Mo","Tu","We","Th","Fr","Sa"].forEach(d => {
       const lbl = dowRow.createEl("span", { cls: "gh-dow-lbl", text: d });
-      lbl.style.cssText = `font-size:10px;color:var(--text-faint);text-align:center;overflow:hidden`;
+      lbl.setCssStyles({ fontSize: "10px", color: "var(--text-faint)", textAlign: "center", overflow: "hidden" });
     });
 
     // Grid - rows are weeks, also grid for perfect alignment
     const grid = graphWrap.createDiv({ cls: "gh-month-grid" });
-    grid.style.cssText = `display:flex;flex-direction:column;gap:${gap}px`;
+    grid.setCssStyles({ display: "flex", flexDirection: "column", gap: gap + "px" });
     weeks.forEach(week => {
       const row = grid.createDiv({ cls: "gh-month-row-cells" });
-      row.style.cssText = `display:grid;grid-template-columns:${colTemplate};gap:${gap}px`;
+      row.setCssStyles({ display: "grid", gridTemplateColumns: colTemplate, gap: gap + "px" });
       week.forEach(day => this.renderCell(row, day, cell));
     });
   }
 
   private renderCell(parent: HTMLElement, day: DayData, size: number) {
     const cell = parent.createDiv({ cls: "gh-cell" });
-    cell.style.cssText = `width:${size}px;height:${size}px`;
+    cell.setCssStyles({ width: size + "px", height: size + "px" });
 
     if (!day.date) {
       cell.addClass("gh-cell--empty");
@@ -955,7 +950,7 @@ export class ContributionsView extends ItemView {
     if (day.date === today) cell.addClass("gh-today");
 
     cell.addEventListener("mouseenter", (e: MouseEvent) => this.showTooltip(e, day));
-    cell.addEventListener("mouseleave", () => { if (this.tooltipEl) this.tooltipEl.style.display = "none"; });
+    cell.addEventListener("mouseleave", () => { if (this.tooltipEl) this.tooltipEl.setCssStyles({ display: "none" }); });
     cell.addEventListener("click", () => this.openOrCreateDailyNote(day.date));
   }
 
@@ -974,9 +969,8 @@ export class ContributionsView extends ItemView {
       this.renderStandardTooltip(day, showSources, repoEntries);
     }
 
-    // Measure then position — render hidden first to get real dimensions
-    this.tooltipEl.style.display = "block";
-    this.tooltipEl.style.visibility = "hidden";
+    // Measure then position - render hidden first to get real dimensions
+    this.tooltipEl.setCssStyles({ display: "block", visibility: "hidden" });
 
     const tooltipWidth  = this.tooltipEl.offsetWidth  || 180;
     const tooltipHeight = this.tooltipEl.offsetHeight || 80;
@@ -991,9 +985,7 @@ export class ContributionsView extends ItemView {
       ? e.pageY - tooltipHeight - 8
       : e.pageY - 34;
 
-    this.tooltipEl.style.left       = left + "px";
-    this.tooltipEl.style.top        = top  + "px";
-    this.tooltipEl.style.visibility = "visible";
+    this.tooltipEl.setCssStyles({ left: left + "px", top: top + "px", visibility: "visible" });
   }
 
   private renderSimpleTooltip(day: DayData, showSources: boolean) {
@@ -1016,18 +1008,59 @@ export class ContributionsView extends ItemView {
       if (day.githubCount > 0) {
         const row = sources.createDiv({ cls: "gh-tip-source-row" });
         const ghIco = row.createEl("span", { cls: "gh-tip-source-icon" });
-        ghIco.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`;
+        ghIco.appendChild(this.makeGithubSvg());
         row.createEl("span", { cls: "gh-tip-source-lbl", text: "GitHub" });
         row.createEl("span", { cls: "gh-tip-source-val", text: String(day.githubCount) });
       }
       if (day.localCount > 0) {
         const row = sources.createDiv({ cls: "gh-tip-source-row" });
         const localIco = row.createEl("span", { cls: "gh-tip-source-icon" });
-        localIco.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/></svg>`;
+        localIco.appendChild(this.makeLocalSvg());
         row.createEl("span", { cls: "gh-tip-source-lbl", text: "Local" });
         row.createEl("span", { cls: "gh-tip-source-val", text: String(day.localCount) });
       }
     }
+  }
+
+  private makeGithubSvg(): SVGElement {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "13");
+    svg.setAttribute("height", "13");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const p1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p1.setAttribute("d", "M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4");
+    svg.appendChild(p1);
+    const p2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p2.setAttribute("d", "M9 18c-4.51 2-5-2-7-2");
+    svg.appendChild(p2);
+    return svg;
+  }
+
+  private makeLocalSvg(): SVGElement {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "13");
+    svg.setAttribute("height", "13");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("width", "18"); rect.setAttribute("height", "12");
+    rect.setAttribute("x", "3"); rect.setAttribute("y", "4");
+    rect.setAttribute("rx", "2"); rect.setAttribute("ry", "2");
+    svg.appendChild(rect);
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", "2"); line.setAttribute("x2", "22");
+    line.setAttribute("y1", "20"); line.setAttribute("y2", "20");
+    svg.appendChild(line);
+    return svg;
   }
 
   private renderStandardTooltip(day: DayData, showSources: boolean, repoEntries: [string, number][]) {
@@ -1045,22 +1078,19 @@ export class ContributionsView extends ItemView {
     countRow.createEl("span", { cls: "gh-tip-count", text: String(day.count) });
     countRow.createEl("span", { cls: "gh-tip-count-lbl", text: ` contribution${day.count !== 1 ? "s" : ""}` });
 
-    const ghSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`;
-    const localSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/></svg>`;
-
     if (showSources && (day.githubCount > 0 || day.localCount > 0)) {
       const sources = t.createDiv({ cls: "gh-tip-sources" });
       if (day.githubCount > 0) {
         const row = sources.createDiv({ cls: "gh-tip-source-row" });
         const ico = row.createEl("span", { cls: "gh-tip-source-icon" });
-        ico.innerHTML = ghSvg;
+        ico.appendChild(this.makeGithubSvg());
         row.createEl("span", { cls: "gh-tip-source-lbl", text: "GitHub" });
         row.createEl("span", { cls: "gh-tip-source-val", text: String(day.githubCount) });
       }
       if (day.localCount > 0) {
         const row = sources.createDiv({ cls: "gh-tip-source-row" });
         const ico = row.createEl("span", { cls: "gh-tip-source-icon" });
-        ico.innerHTML = localSvg;
+        ico.appendChild(this.makeLocalSvg());
         row.createEl("span", { cls: "gh-tip-source-lbl", text: "Local" });
         row.createEl("span", { cls: "gh-tip-source-val", text: String(day.localCount) });
       }
@@ -1072,7 +1102,7 @@ export class ContributionsView extends ItemView {
       repoEntries.forEach(([repo, count], i) => {
         const row = t.createDiv({ cls: "gh-tip-repo-row" });
         const dot = row.createEl("span", { cls: "gh-tip-dot" });
-        dot.style.background = repoColors[i % repoColors.length];
+        dot.setCssStyles({ background: repoColors[i % repoColors.length] });
         row.createEl("span", { cls: "gh-tip-repo-name", text: repo });
         row.createEl("span", { cls: "gh-tip-repo-count", text: `(${count})` });
       });
@@ -1087,7 +1117,7 @@ export class ContributionsView extends ItemView {
     for (let i = 0; i <= 4; i++) {
       const sq = legend.createDiv({ cls: "gh-cell gh-legend-cell" });
       sq.dataset.level = String(i);
-      sq.style.cssText = `width:${cell}px;height:${cell}px`;
+      sq.setCssStyles({ width: cell + "px", height: cell + "px" });
     }
     legend.createEl("span", { cls: "gh-legend-lbl", text: "More" });
   }
@@ -1116,7 +1146,7 @@ export class ContributionsView extends ItemView {
     const cols = this.viewMode === "year" ? 53 : 7;
     const rows = this.viewMode === "year" ? 7 : 6;
     const { cell, gap } = this.getCellSize();
-    grid.style.cssText = `display:grid;grid-template-columns:repeat(${cols},${cell}px);grid-template-rows:repeat(${rows},${cell}px);gap:${gap}px`;
+    grid.setCssStyles({ display: "grid", gridTemplateColumns: `repeat(${cols},${cell}px)`, gridTemplateRows: `repeat(${rows},${cell}px)`, gap: gap + "px" });
     for (let i = 0; i < cols * rows; i++) grid.createDiv({ cls: "gh-skeleton gh-skeleton-cell" });
   }
 
@@ -1141,7 +1171,7 @@ export class ContributionsView extends ItemView {
         return;
       }
     }
-    await this.app.workspace.getLeaf(false).openFile(file as TFile);
+    if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
   }
 }
 
@@ -1151,7 +1181,7 @@ export class ContributionsView extends ItemView {
 // Maps a contribution count to a colour level 0–4.
 // These thresholds roughly mirror GitHub's own contribution graph levels.
 // Level 0 = empty, level 4 = most active. Adjust thresholds here to change
-// how aggressively the graph colours — useful if your commit volume is very
+// how aggressively the graph colours - useful if your commit volume is very
 // high or very low compared to the defaults.
 function countToLevel(n: number): number {
   if (n === 0) return 0;
@@ -1174,10 +1204,10 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "GitHub Contributions" });
+    new Setting(containerEl).setName("GitHub Contributions").setHeading();
 
     // ── Data Sources
-    containerEl.createEl("h3", { text: "Data Sources" });
+    new Setting(containerEl).setName("Data Sources").setHeading();
 
     new Setting(containerEl)
       .setName("Source")
@@ -1294,7 +1324,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
           .setName("Personal Access Token")
-          .setDesc("PAT with read:user scope — github.com/settings/tokens")
+          .setDesc("PAT with read:user scope - github.com/settings/tokens")
           .addText(t => {
             t.inputEl.type = "password";
             t.setPlaceholder("ghp_…").setValue(this.plugin.settings.githubToken)
@@ -1322,7 +1352,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
               btn.setButtonText("Scanning…").setDisabled(true);
               await this.plugin.saveSettings();
               btn.setButtonText("Scan").setDisabled(false);
-              new Notice("Repo scan complete — refresh the panel to see results");
+              new Notice("Repo scan complete - refresh the panel to see results");
             })
           );
 
@@ -1342,13 +1372,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
     }
 
     // ── Display
-    containerEl.createEl("h3", { text: "Display" });
-
-    new Setting(containerEl)
-      .setName("Sidebar side")
-      .addDropdown(d => d.addOption("left","Left").addOption("right","Right")
-        .setValue(this.plugin.settings.sidebarSide)
-        .onChange(async v => { this.plugin.settings.sidebarSide = v as "left"|"right"; await this.plugin.saveSettings(); }));
+    new Setting(containerEl).setName("Display").setHeading();
 
     new Setting(containerEl)
       .setName("Stats display")
@@ -1406,7 +1430,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
     // ── Daily Notes
     new Setting(containerEl)
       .setName("Tooltip style")
-      .setDesc("Console — compact monospace. Modern — larger, with colored repo markers.")
+
       .addDropdown(d => d
         .addOption("standard", "Standard (with repos)")
         .addOption("simple",   "Simple (no repos)")
@@ -1416,7 +1440,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Demo mode")
-      .setDesc("Show fake contribution data — useful for screenshots or testing")
+      .setDesc("Show fake contribution data - useful for screenshots or testing")
       .addToggle(t => t.setValue(this.plugin.settings.demoMode)
         .onChange(async v => { this.plugin.settings.demoMode = v; await this.plugin.saveSettings(); }));
 
@@ -1426,7 +1450,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
       .addToggle(t => t.setValue(this.plugin.settings.showLegend)
         .onChange(async v => { this.plugin.settings.showLegend = v; await this.plugin.saveSettings(); }));
 
-    containerEl.createEl("h3", { text: "Daily Notes" });
+    new Setting(containerEl).setName("Daily Notes").setHeading();
 
     new Setting(containerEl)
       .setName("Daily notes folder")
@@ -1457,24 +1481,19 @@ export default class GitHubContributionsPlugin extends Plugin {
     this.addSettingTab(new GitHubContributionsSettingTab(this.app, this));
     this.registerView(VIEW_TYPE, (leaf: WorkspaceLeaf) => new ContributionsView(leaf, this));
     this.addRibbonIcon("github", "GitHub Contributions", () => this.activateView());
-    this.addCommand({ id: "open-github-contributions", name: "Open GitHub Contributions panel", callback: () => this.activateView() });
-    this.injectStyles();
+    this.addCommand({ id: "open-panel", name: "Open panel", callback: () => this.activateView() });
     this.injectPaletteStyles();
   }
 
   onunload() {
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE);
-    document.getElementById("gh-contributions-styles")?.remove();
-    document.getElementById("gh-palette-styles")?.remove();
-    document.querySelectorAll(".gh-tooltip").forEach(el => el.remove());
+    activeDocument.getElementById("gh-palette-styles")?.remove();
+    activeDocument.querySelectorAll(".gh-tooltip").forEach(el => el.remove());
   }
 
   async activateView() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE);
     if (existing.length > 0) { this.app.workspace.revealLeaf(existing[0]); return; }
-    const leaf = this.settings.sidebarSide === "left"
-      ? this.app.workspace.getLeftLeaf(false)
-      : this.app.workspace.getRightLeaf(false);
+    const leaf = this.app.workspace.getRightLeaf(false);
     if (leaf) { await leaf.setViewState({ type: VIEW_TYPE, active: true }); this.app.workspace.revealLeaf(leaf); }
   }
 
@@ -1492,127 +1511,18 @@ export default class GitHubContributionsPlugin extends Plugin {
   }
 
   injectPaletteStyles() {
-    const existing = document.getElementById("gh-palette-styles");
+    const doc = activeDocument;
+    const existing = doc.getElementById("gh-palette-styles");
     if (existing) existing.remove();
     const p = PALETTES[this.settings.palette] ?? PALETTES["classic"];
-    const style = document.createElement("style");
+    const style = doc.createElement("style");
     style.id = "gh-palette-styles";
     // Use body instead of :root for reliability in Obsidian's DOM
     style.textContent = `
 body{--gh-c0:${p.dark[0]};--gh-c1:${p.dark[1]};--gh-c2:${p.dark[2]};--gh-c3:${p.dark[3]};--gh-c4:${p.dark[4]}}
 body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2]};--gh-c3:${p.light[3]};--gh-c4:${p.light[4]}}
     `;
-    document.head.appendChild(style);
+    doc.head.appendChild(style);
   }
 
-  private injectStyles() {
-    if (document.getElementById("gh-contributions-styles")) return;
-    const style = document.createElement("style");
-    style.id = "gh-contributions-styles";
-    style.textContent = `
-.gh-contributions-view{padding:12px 10px 16px;overflow-y:auto;overflow-x:hidden;user-select:none}
-.gh-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:6px}
-.gh-username{font-size:13px;font-weight:600;color:var(--text-normal);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-.gh-nav{display:flex;align-items:center;gap:3px;flex-shrink:0}
-.gh-nav-label{font-size:12px;color:var(--text-muted);min-width:52px;text-align:center;white-space:nowrap}
-.gh-nav-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:14px;line-height:1;padding:1px 6px;transition:background .15s}
-.gh-nav-btn:hover:not(:disabled){background:var(--background-modifier-hover);color:var(--text-normal)}
-.gh-nav-btn:disabled{opacity:.3;cursor:default}
-.gh-stats{display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap}
-.gh-stats--grid{display:grid!important;grid-template-columns:1fr 1fr}
-.gh-stat{display:flex;flex-direction:column;align-items:center;background:var(--background-secondary);border-radius:6px;padding:5px 7px;flex:1;min-width:0}
-.gh-stats--grid .gh-stat{flex:unset}
-.gh-stat--wide{grid-column:1 / -1}
-.gh-stat-val{font-size:13px;font-weight:700;color:var(--interactive-accent);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-.gh-stat-lbl{font-size:9px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;text-align:center}
-.gh-stats-compact{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;align-items:center}
-.gh-chip{display:inline-flex;align-items:center;gap:3px;background:var(--background-secondary);border-radius:4px;padding:3px 6px;font-size:11px;white-space:nowrap}
-.gh-chip-icon{font-size:10px}
-.gh-chip-val{font-weight:700;color:var(--interactive-accent)}
-.gh-stats-list{display:flex;flex-direction:column;gap:1px;margin-bottom:8px}
-.gh-stats-list-row{display:flex;align-items:baseline;gap:4px;font-size:11px;line-height:1.6}
-.gh-stats-list-icon{font-size:10px;width:14px;text-align:center;flex-shrink:0}
-.gh-stats-list-val{font-weight:700;color:var(--interactive-accent);font-size:12px}
-.gh-stats-list-lbl{color:var(--text-muted);font-size:11px}
-.gh-oauth-code{display:inline-block;font-size:22px;font-weight:700;letter-spacing:4px;color:var(--interactive-accent);font-family:var(--font-monospace);margin:6px 0;padding:4px 8px;background:var(--background-secondary);border-radius:6px}
-.gh-repo-line{margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid var(--background-modifier-border)}
-.gh-repo-line-icon{font-size:10px;color:var(--text-faint)}
-.gh-repo-line-name{font-size:11px;color:var(--text-muted)}
-.gh-graph-wrap{overflow-x:auto;padding-bottom:4px}
-.gh-month-lbl{font-size:9px;color:var(--text-faint)}
-.gh-cell{border-radius:2px;cursor:pointer;transition:transform .1s;flex-shrink:0;box-sizing:border-box}
-.gh-cell:hover{transform:scale(1.3);z-index:1;position:relative}
-.gh-cell--empty{background:transparent!important;cursor:default!important}
-.gh-cell--empty:hover{transform:none!important}
-.gh-today{outline:2px solid var(--interactive-accent)!important;outline-offset:1px}
-.gh-cell[data-level="0"]{background:var(--gh-c0)}
-.gh-cell[data-level="1"]{background:var(--gh-c1)}
-.gh-cell[data-level="2"]{background:var(--gh-c2)}
-.gh-cell[data-level="3"]{background:var(--gh-c3)}
-.gh-cell[data-level="4"]{background:var(--gh-c4)}
-.gh-legend{display:flex;align-items:center;gap:3px;margin-top:8px;justify-content:flex-end}
-.gh-legend-lbl{font-size:9px;color:var(--text-faint)}
-.gh-legend-cell{cursor:default!important}
-.gh-legend-cell:hover{transform:none!important}
-.gh-refresh-icon{margin-left:2px;font-size:13px!important}
-.gh-empty{display:flex;flex-direction:column;align-items:center;padding:24px 12px;text-align:center;gap:10px}
-.gh-empty-icon{font-size:32px}
-.gh-empty p{font-size:12px;color:var(--text-muted);line-height:1.5;margin:0}
-.gh-btn{background:var(--interactive-accent);border:none;border-radius:6px;color:var(--text-on-accent);cursor:pointer;font-size:12px;padding:6px 14px}
-.gh-btn:hover{filter:brightness(1.1)}
-.gh-error{padding:10px 12px;background:var(--background-modifier-error);border-radius:6px;color:var(--text-error);font-size:12px;margin:8px 0}
-.gh-skeleton-wrap{padding:4px 0}
-.gh-skeleton-header{height:14px;width:55%;margin-bottom:10px;border-radius:4px}
-.gh-skeleton-stats{height:44px;width:100%;margin-bottom:10px;border-radius:6px}
-.gh-skeleton-cell{border-radius:2px}
-.gh-skeleton{animation:gh-shimmer 1.4s infinite linear;background:linear-gradient(90deg,var(--background-modifier-border) 25%,var(--background-secondary) 50%,var(--background-modifier-border) 75%);background-size:200% 100%}
-@keyframes gh-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.gh-tooltip{position:fixed;background:#1a1a1a;color:#eee;border-radius:6px;padding:7px 10px;font-size:11px;line-height:1.6;pointer-events:none;display:none;z-index:9999;white-space:pre;box-shadow:0 2px 10px rgba(0,0,0,.35);font-family:var(--font-monospace)}
-.gh-tooltip strong{color:#fff;display:block;margin-bottom:2px;font-family:var(--font-interface)}
-.theme-light .gh-tooltip{background:#222}
-/* Console tooltip */
-.gh-tooltip--console{background:#161b22;border:1px solid rgba(255,255,255,0.18);border-radius:8px;padding:10px 13px;font-family:var(--font-monospace);min-width:180px;white-space:normal;box-shadow:0 0 0 1px rgba(255,255,255,0.06),0 8px 24px rgba(0,0,0,.4)}
-.gh-con-date{font-size:11px;font-weight:600;color:#3fb950;margin-bottom:4px}
-.gh-con-dash{border-top:1px dashed rgba(255,255,255,0.15);margin:6px 0}
-.gh-con-count-row{display:flex;align-items:baseline;gap:4px;margin-bottom:5px}
-.gh-con-count{font-size:15px;font-weight:700;color:#3fb950}
-.gh-con-count-lbl{font-size:11px;color:#8b949e}
-.gh-con-source-row{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:3px}
-.gh-con-source-icon{color:#8b949e;width:14px;display:flex;align-items:center;flex-shrink:0}
-.gh-con-source-icon svg{display:block}
-.gh-con-source-lbl{color:#cdd9e5;flex:1}
-.gh-con-source-val{color:#fff;font-weight:700;min-width:16px;text-align:right}
-.gh-con-repo-row{display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:3px}
-.gh-con-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.gh-con-repo-name{color:#8b949e;flex:1}
-.gh-con-repo-count{color:#8b949e;font-size:10px}
-.gh-con-hint{font-size:9px;color:#484f58;margin-top:6px;font-style:italic}
-.gh-con-no-contrib{font-size:12px;color:#8b949e}
-.gh-tooltip--modern{white-space:normal;padding:12px 14px;border-radius:10px;background:#161b22;border:1px solid rgba(255,255,255,0.12);box-shadow:0 8px 32px rgba(0,0,0,.6);min-width:190px;font-family:var(--font-interface)}
-.theme-light .gh-tooltip--modern{background:#1c2128;border-color:rgba(255,255,255,0.15)}
-/* Date */
-.gh-tip-date{font-size:13px;font-weight:600;color:#fff;margin-bottom:6px}
-/* Count row */
-.gh-tip-count-row{display:flex;align-items:baseline;gap:4px;margin-bottom:10px}
-.gh-tip-count{font-size:18px;font-weight:700;color:#3fb950}
-.gh-tip-count-lbl{font-size:13px;color:#fff;margin-left:3px;font-weight:400}
-/* Source section */
-.gh-tip-section{margin-bottom:8px}
-.gh-tip-source-row{display:flex;align-items:center;gap:8px;font-size:13px}
-.gh-tip-source-icon{color:#6e7681;width:14px;display:flex;align-items:center;flex-shrink:0}
-.gh-tip-source-icon svg{display:block}
-.gh-tip-source-lbl{flex:1;color:#fff;font-weight:400}
-.gh-tip-source-val{color:#fff;font-weight:500;min-width:16px;text-align:right}
-/* Repo rows — colored dot, monospace name, gray count */
-.gh-tip-repo-row{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:5px}
-.gh-tip-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-.gh-tip-repo-name{color:#fff;flex:1;font-family:var(--font-monospace);font-size:11px}
-.gh-tip-repo-count{color:#6e7681;font-size:11px}
-/* Divider */
-.gh-tip-divider{height:1px;background:rgba(255,255,255,0.1);margin:8px 0}
-/* Hint */
-.gh-tip-no-contrib{font-size:12px;color:#6e7681}
-    `;
-    document.head.appendChild(style);
-  }
 }

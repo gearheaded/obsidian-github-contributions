@@ -1,0 +1,194 @@
+/* ########################################################################
+   GitHub Contributions Plugin — styles.css
+   Obsidian loads this automatically. Do not inject styles via JS.
+######################################################################## */
+
+/* ── View container ── */
+.gh-contributions-view {
+  padding: 12px 10px 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  user-select: none;
+}
+
+/* ── Header ── */
+.gh-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 6px;
+}
+.gh-username {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Nav buttons ── */
+.gh-nav { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
+.gh-nav-label { font-size: 12px; color: var(--text-muted); min-width: 52px; text-align: center; white-space: nowrap; }
+.gh-nav-btn {
+  background: none;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 1px 6px;
+  transition: background .15s;
+}
+.gh-nav-btn:hover:not(:disabled) { background: var(--background-modifier-hover); color: var(--text-normal); }
+.gh-nav-btn:disabled { opacity: .3; cursor: default; }
+.gh-refresh-icon { margin-left: 2px; font-size: 13px !important; }
+
+/* ── Stats — default flex row ── */
+.gh-stats { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
+.gh-stats--grid { display: grid !important; grid-template-columns: 1fr 1fr; }
+.gh-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  padding: 5px 7px;
+  flex: 1;
+  min-width: 0;
+}
+.gh-stats--grid .gh-stat { flex: unset; }
+.gh-stat--wide { grid-column: 1 / -1; }
+.gh-stat-val { font-size: 13px; font-weight: 700; color: var(--interactive-accent); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.gh-stat-lbl { font-size: 9px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; text-align: center; }
+
+/* ── Stats — compact chips ── */
+.gh-stats-compact { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; align-items: center; }
+.gh-chip { display: inline-flex; align-items: center; gap: 3px; background: var(--background-secondary); border-radius: 4px; padding: 3px 6px; font-size: 11px; white-space: nowrap; }
+.gh-chip-icon { font-size: 10px; }
+.gh-chip-val { font-weight: 700; color: var(--interactive-accent); }
+
+/* ── Stats — list style ── */
+.gh-stats-list { display: flex; flex-direction: column; gap: 1px; margin-bottom: 8px; }
+.gh-stats-list-row { display: flex; align-items: baseline; gap: 4px; font-size: 11px; line-height: 1.6; }
+.gh-stats-list-icon { font-size: 10px; width: 14px; text-align: center; flex-shrink: 0; }
+.gh-stats-list-val { font-weight: 700; color: var(--interactive-accent); font-size: 12px; }
+.gh-stats-list-lbl { color: var(--text-muted); font-size: 11px; }
+
+/* ── Repo line ── */
+.gh-repo-line { margin-bottom: 6px; padding-bottom: 5px; border-bottom: 1px solid var(--background-modifier-border); }
+.gh-repo-line-icon { font-size: 10px; color: var(--text-faint); }
+.gh-repo-line-name { font-size: 11px; color: var(--text-muted); }
+
+/* ── OAuth code display ── */
+.gh-oauth-code {
+  display: inline-block;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--interactive-accent);
+  font-family: var(--font-monospace);
+  margin: 6px 0;
+  padding: 4px 8px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+}
+
+/* ── Graph ── */
+.gh-graph-wrap { overflow-x: auto; padding-bottom: 4px; }
+.gh-month-lbl { font-size: 9px; color: var(--text-faint); }
+.gh-dow-lbl { font-size: 10px; color: var(--text-faint); text-align: center; overflow: hidden; }
+
+/* ── Cells ── */
+.gh-cell {
+  border-radius: 2px;
+  cursor: pointer;
+  transition: transform .1s;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+.gh-cell:hover { transform: scale(1.3); z-index: 1; position: relative; }
+.gh-cell--empty { background: transparent !important; cursor: default !important; }
+.gh-cell--empty:hover { transform: none !important; }
+.gh-today { outline: 2px solid var(--interactive-accent) !important; outline-offset: 1px; }
+
+/* Contribution level colours — set via CSS vars updated by injectPaletteStyles() */
+.gh-cell[data-level="0"] { background: var(--gh-c0); }
+.gh-cell[data-level="1"] { background: var(--gh-c1); }
+.gh-cell[data-level="2"] { background: var(--gh-c2); }
+.gh-cell[data-level="3"] { background: var(--gh-c3); }
+.gh-cell[data-level="4"] { background: var(--gh-c4); }
+
+/* ── Legend ── */
+.gh-legend { display: flex; align-items: center; gap: 3px; margin-top: 8px; justify-content: flex-end; }
+.gh-legend-lbl { font-size: 9px; color: var(--text-faint); }
+.gh-legend-cell { cursor: default !important; }
+.gh-legend-cell:hover { transform: none !important; }
+
+/* ── Empty state ── */
+.gh-empty { display: flex; flex-direction: column; align-items: center; padding: 24px 12px; text-align: center; gap: 10px; }
+.gh-empty-icon { font-size: 32px; }
+.gh-empty p { font-size: 12px; color: var(--text-muted); line-height: 1.5; margin: 0; }
+.gh-btn { background: var(--interactive-accent); border: none; border-radius: 6px; color: var(--text-on-accent); cursor: pointer; font-size: 12px; padding: 6px 14px; }
+.gh-btn:hover { filter: brightness(1.1); }
+
+/* ── Error state ── */
+.gh-error { padding: 10px 12px; background: var(--background-modifier-error); border-radius: 6px; color: var(--text-error); font-size: 12px; margin: 8px 0; }
+
+/* ── Skeleton loader ── */
+.gh-skeleton-wrap { padding: 4px 0; }
+.gh-skeleton-header { height: 14px; width: 55%; margin-bottom: 10px; border-radius: 4px; }
+.gh-skeleton-stats { height: 44px; width: 100%; margin-bottom: 10px; border-radius: 6px; }
+.gh-skeleton-cell { border-radius: 2px; }
+.gh-skeleton {
+  animation: gh-shimmer 1.4s infinite linear;
+  background: linear-gradient(90deg, var(--background-modifier-border) 25%, var(--background-secondary) 50%, var(--background-modifier-border) 75%);
+  background-size: 200% 100%;
+}
+@keyframes gh-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Tooltip — base ── */
+.gh-tooltip {
+  position: fixed;
+  pointer-events: none;
+  display: none;
+  z-index: 9999;
+}
+
+/* ── Tooltip — Standard / Simple (modern card style) ── */
+.gh-tooltip--modern {
+  white-space: normal;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #161b22;
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 8px 32px rgba(0,0,0,.6);
+  min-width: 190px;
+  font-family: var(--font-interface);
+}
+.theme-light .gh-tooltip--modern { background: #1c2128; border-color: rgba(255,255,255,0.15); }
+.gh-tip-date { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+.gh-tip-count-row { display: flex; align-items: baseline; gap: 4px; margin-bottom: 10px; }
+.gh-tip-count { font-size: 18px; font-weight: 700; color: #3fb950; }
+.gh-tip-count-lbl { font-size: 13px; color: #fff; margin-left: 3px; font-weight: 400; }
+.gh-tip-sources { display: flex; flex-direction: column; gap: 5px; margin-bottom: 4px; }
+.gh-tip-source-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.gh-tip-source-icon { color: #6e7681; width: 14px; display: flex; align-items: center; flex-shrink: 0; }
+.gh-tip-source-lbl { flex: 1; color: #fff; font-weight: 400; }
+.gh-tip-source-val { color: #fff; font-weight: 500; min-width: 16px; text-align: right; }
+.gh-tip-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 8px 0; }
+.gh-tip-repo-row { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 5px; }
+.gh-tip-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.gh-tip-repo-name { color: #fff; flex: 1; font-family: var(--font-monospace); font-size: 11px; }
+.gh-tip-repo-count { color: #6e7681; font-size: 11px; }
+.gh-tip-no-contrib { font-size: 12px; color: #6e7681; }
+
+/* ── Settings notice (mobile warning) ── */
+.gh-settings-notice { color: var(--text-warning); font-size: 13px; margin: 8px 0; }

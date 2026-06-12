@@ -46,7 +46,6 @@ var DEFAULT_SETTINGS = {
   demoMode: false,
   showLegend: true,
   tooltipStyle: "standard",
-  sidebarSide: "right",
   selectedYear: new Date().getFullYear(),
   sizePreset: "medium",
   defaultView: "year",
@@ -61,7 +60,7 @@ var PRESET_SIZES = {
   "medium": { cell: 11, gap: 2 },
   "large": { cell: 14, gap: 3 },
   "fit": { cell: 0, gap: 2 }
-  // sentinel — calculated at render time
+  // sentinel - calculated at render time
 };
 var PALETTES = {
   "classic": {
@@ -86,10 +85,10 @@ var PALETTES = {
   }
 };
 function debounce(fn, ms) {
-  let timer;
+  let timer = 0;
   return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => fn(...args), ms);
   };
 }
 async function requestDeviceCode() {
@@ -522,7 +521,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
     container.empty();
     container.addClass("gh-contributions-view");
     if (!this.tooltipEl) {
-      this.tooltipEl = document.body.createDiv({ cls: "gh-tooltip" });
+      this.tooltipEl = activeDocument.body.createDiv({ cls: "gh-tooltip" });
     }
     const s = this.plugin.settings;
     const needsGH = s.dataSource === "github" || s.dataSource === "both";
@@ -696,9 +695,9 @@ var ContributionsView = class extends import_obsidian.ItemView {
   renderYearGrid(container, weeks) {
     const { cell, gap } = this.getCellSize();
     const graphWrap = container.createDiv({ cls: "gh-graph-wrap" });
-    graphWrap.style.overflowX = "auto";
+    graphWrap.setCssStyles({ overflowX: "auto" });
     const monthRow = graphWrap.createDiv({ cls: "gh-month-row" });
-    monthRow.style.cssText = `display:grid;grid-template-columns:repeat(${weeks.length},${cell}px);gap:${gap}px;margin-bottom:3px`;
+    monthRow.setCssStyles({ display: "grid", gridTemplateColumns: `repeat(${weeks.length},${cell}px)`, gap: gap + "px", marginBottom: "3px" });
     let lastMonth = -1;
     weeks.forEach((week, wi) => {
       const first = week.find((d) => d.date);
@@ -708,15 +707,14 @@ var ContributionsView = class extends import_obsidian.ItemView {
       if (m !== lastMonth) {
         lastMonth = m;
         const lbl = monthRow.createEl("span", { cls: "gh-month-lbl", text: MONTHS_SHORT[m] });
-        lbl.style.gridColumn = String(wi + 1);
-        lbl.style.fontSize = Math.max(8, cell - 2) + "px";
+        lbl.setCssStyles({ gridColumn: String(wi + 1), fontSize: Math.max(8, cell - 2) + "px" });
       }
     });
     const grid = graphWrap.createDiv({ cls: "gh-grid" });
-    grid.style.cssText = `display:flex;gap:${gap}px`;
+    grid.setCssStyles({ display: "flex", gap: gap + "px" });
     weeks.forEach((week) => {
       const col = grid.createDiv({ cls: "gh-col" });
-      col.style.cssText = `display:flex;flex-direction:column;gap:${gap}px`;
+      col.setCssStyles({ display: "flex", flexDirection: "column", gap: gap + "px" });
       week.forEach((day) => this.renderCell(col, day, cell));
     });
   }
@@ -725,22 +723,22 @@ var ContributionsView = class extends import_obsidian.ItemView {
     const graphWrap = container.createDiv({ cls: "gh-graph-wrap" });
     const colTemplate = `repeat(7,${cell}px)`;
     const dowRow = graphWrap.createDiv({ cls: "gh-dow-row" });
-    dowRow.style.cssText = `display:grid;grid-template-columns:${colTemplate};gap:${gap}px;margin-bottom:4px`;
+    dowRow.setCssStyles({ display: "grid", gridTemplateColumns: colTemplate, gap: gap + "px", marginBottom: "4px" });
     ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].forEach((d) => {
       const lbl = dowRow.createEl("span", { cls: "gh-dow-lbl", text: d });
-      lbl.style.cssText = `font-size:10px;color:var(--text-faint);text-align:center;overflow:hidden`;
+      lbl.setCssStyles({ fontSize: "10px", color: "var(--text-faint)", textAlign: "center", overflow: "hidden" });
     });
     const grid = graphWrap.createDiv({ cls: "gh-month-grid" });
-    grid.style.cssText = `display:flex;flex-direction:column;gap:${gap}px`;
+    grid.setCssStyles({ display: "flex", flexDirection: "column", gap: gap + "px" });
     weeks.forEach((week) => {
       const row = grid.createDiv({ cls: "gh-month-row-cells" });
-      row.style.cssText = `display:grid;grid-template-columns:${colTemplate};gap:${gap}px`;
+      row.setCssStyles({ display: "grid", gridTemplateColumns: colTemplate, gap: gap + "px" });
       week.forEach((day) => this.renderCell(row, day, cell));
     });
   }
   renderCell(parent, day, size) {
     const cell = parent.createDiv({ cls: "gh-cell" });
-    cell.style.cssText = `width:${size}px;height:${size}px`;
+    cell.setCssStyles({ width: size + "px", height: size + "px" });
     if (!day.date) {
       cell.addClass("gh-cell--empty");
       return;
@@ -752,7 +750,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
     cell.addEventListener("mouseenter", (e) => this.showTooltip(e, day));
     cell.addEventListener("mouseleave", () => {
       if (this.tooltipEl)
-        this.tooltipEl.style.display = "none";
+        this.tooltipEl.setCssStyles({ display: "none" });
     });
     cell.addEventListener("click", () => this.openOrCreateDailyNote(day.date));
   }
@@ -769,17 +767,14 @@ var ContributionsView = class extends import_obsidian.ItemView {
     } else {
       this.renderStandardTooltip(day, showSources, repoEntries);
     }
-    this.tooltipEl.style.display = "block";
-    this.tooltipEl.style.visibility = "hidden";
+    this.tooltipEl.setCssStyles({ display: "block", visibility: "hidden" });
     const tooltipWidth = this.tooltipEl.offsetWidth || 180;
     const tooltipHeight = this.tooltipEl.offsetHeight || 80;
     const spaceOnRight = window.innerWidth - e.pageX;
     const left = spaceOnRight < tooltipWidth + 20 ? e.pageX - tooltipWidth - 12 : e.pageX + 12;
     const spaceBelow = window.innerHeight - e.pageY;
     const top = spaceBelow < tooltipHeight + 20 ? e.pageY - tooltipHeight - 8 : e.pageY - 34;
-    this.tooltipEl.style.left = left + "px";
-    this.tooltipEl.style.top = top + "px";
-    this.tooltipEl.style.visibility = "visible";
+    this.tooltipEl.setCssStyles({ left: left + "px", top: top + "px", visibility: "visible" });
   }
   renderSimpleTooltip(day, showSources) {
     const t = this.tooltipEl;
@@ -797,18 +792,62 @@ var ContributionsView = class extends import_obsidian.ItemView {
       if (day.githubCount > 0) {
         const row = sources.createDiv({ cls: "gh-tip-source-row" });
         const ghIco = row.createEl("span", { cls: "gh-tip-source-icon" });
-        ghIco.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`;
+        ghIco.appendChild(this.makeGithubSvg());
         row.createEl("span", { cls: "gh-tip-source-lbl", text: "GitHub" });
         row.createEl("span", { cls: "gh-tip-source-val", text: String(day.githubCount) });
       }
       if (day.localCount > 0) {
         const row = sources.createDiv({ cls: "gh-tip-source-row" });
         const localIco = row.createEl("span", { cls: "gh-tip-source-icon" });
-        localIco.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/></svg>`;
+        localIco.appendChild(this.makeLocalSvg());
         row.createEl("span", { cls: "gh-tip-source-lbl", text: "Local" });
         row.createEl("span", { cls: "gh-tip-source-val", text: String(day.localCount) });
       }
     }
+  }
+  makeGithubSvg() {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "13");
+    svg.setAttribute("height", "13");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const p1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p1.setAttribute("d", "M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4");
+    svg.appendChild(p1);
+    const p2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p2.setAttribute("d", "M9 18c-4.51 2-5-2-7-2");
+    svg.appendChild(p2);
+    return svg;
+  }
+  makeLocalSvg() {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "13");
+    svg.setAttribute("height", "13");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("width", "18");
+    rect.setAttribute("height", "12");
+    rect.setAttribute("x", "3");
+    rect.setAttribute("y", "4");
+    rect.setAttribute("rx", "2");
+    rect.setAttribute("ry", "2");
+    svg.appendChild(rect);
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", "2");
+    line.setAttribute("x2", "22");
+    line.setAttribute("y1", "20");
+    line.setAttribute("y2", "20");
+    svg.appendChild(line);
+    return svg;
   }
   renderStandardTooltip(day, showSources, repoEntries) {
     const t = this.tooltipEl;
@@ -821,21 +860,19 @@ var ContributionsView = class extends import_obsidian.ItemView {
     const countRow = t.createDiv({ cls: "gh-tip-count-row" });
     countRow.createEl("span", { cls: "gh-tip-count", text: String(day.count) });
     countRow.createEl("span", { cls: "gh-tip-count-lbl", text: ` contribution${day.count !== 1 ? "s" : ""}` });
-    const ghSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`;
-    const localSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/></svg>`;
     if (showSources && (day.githubCount > 0 || day.localCount > 0)) {
       const sources = t.createDiv({ cls: "gh-tip-sources" });
       if (day.githubCount > 0) {
         const row = sources.createDiv({ cls: "gh-tip-source-row" });
         const ico = row.createEl("span", { cls: "gh-tip-source-icon" });
-        ico.innerHTML = ghSvg;
+        ico.appendChild(this.makeGithubSvg());
         row.createEl("span", { cls: "gh-tip-source-lbl", text: "GitHub" });
         row.createEl("span", { cls: "gh-tip-source-val", text: String(day.githubCount) });
       }
       if (day.localCount > 0) {
         const row = sources.createDiv({ cls: "gh-tip-source-row" });
         const ico = row.createEl("span", { cls: "gh-tip-source-icon" });
-        ico.innerHTML = localSvg;
+        ico.appendChild(this.makeLocalSvg());
         row.createEl("span", { cls: "gh-tip-source-lbl", text: "Local" });
         row.createEl("span", { cls: "gh-tip-source-val", text: String(day.localCount) });
       }
@@ -846,7 +883,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
       repoEntries.forEach(([repo, count], i) => {
         const row = t.createDiv({ cls: "gh-tip-repo-row" });
         const dot = row.createEl("span", { cls: "gh-tip-dot" });
-        dot.style.background = repoColors[i % repoColors.length];
+        dot.setCssStyles({ background: repoColors[i % repoColors.length] });
         row.createEl("span", { cls: "gh-tip-repo-name", text: repo });
         row.createEl("span", { cls: "gh-tip-repo-count", text: `(${count})` });
       });
@@ -859,7 +896,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
     for (let i = 0; i <= 4; i++) {
       const sq = legend.createDiv({ cls: "gh-cell gh-legend-cell" });
       sq.dataset.level = String(i);
-      sq.style.cssText = `width:${cell}px;height:${cell}px`;
+      sq.setCssStyles({ width: cell + "px", height: cell + "px" });
     }
     legend.createEl("span", { cls: "gh-legend-lbl", text: "More" });
   }
@@ -882,7 +919,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
     const cols = this.viewMode === "year" ? 53 : 7;
     const rows = this.viewMode === "year" ? 7 : 6;
     const { cell, gap } = this.getCellSize();
-    grid.style.cssText = `display:grid;grid-template-columns:repeat(${cols},${cell}px);grid-template-rows:repeat(${rows},${cell}px);gap:${gap}px`;
+    grid.setCssStyles({ display: "grid", gridTemplateColumns: `repeat(${cols},${cell}px)`, gridTemplateRows: `repeat(${rows},${cell}px)`, gap: gap + "px" });
     for (let i = 0; i < cols * rows; i++)
       grid.createDiv({ cls: "gh-skeleton gh-skeleton-cell" });
   }
@@ -907,7 +944,8 @@ var ContributionsView = class extends import_obsidian.ItemView {
         return;
       }
     }
-    await this.app.workspace.getLeaf(false).openFile(file);
+    if (file instanceof import_obsidian.TFile)
+      await this.app.workspace.getLeaf(false).openFile(file);
   }
 };
 function countToLevel(n) {
@@ -929,8 +967,8 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "GitHub Contributions" });
-    containerEl.createEl("h3", { text: "Data Sources" });
+    new import_obsidian.Setting(containerEl).setName("GitHub Contributions").setHeading();
+    new import_obsidian.Setting(containerEl).setName("Data Sources").setHeading();
     new import_obsidian.Setting(containerEl).setName("Source").setDesc("Which contributions to display").addDropdown(
       (d) => d.addOption("github", "GitHub only").addOption("local", "Local git only").addOption("both", "Both").setValue(this.plugin.settings.dataSource).onChange(async (v) => {
         this.plugin.settings.dataSource = v;
@@ -1011,7 +1049,7 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
           this.plugin.settings.githubUsername = v.trim();
           await this.plugin.saveSettings();
         }));
-        new import_obsidian.Setting(containerEl).setName("Personal Access Token").setDesc("PAT with read:user scope \u2014 github.com/settings/tokens").addText((t) => {
+        new import_obsidian.Setting(containerEl).setName("Personal Access Token").setDesc("PAT with read:user scope - github.com/settings/tokens").addText((t) => {
           t.inputEl.type = "password";
           t.setPlaceholder("ghp_\u2026").setValue(this.plugin.settings.githubToken).onChange(async (v) => {
             this.plugin.settings.githubToken = v.trim();
@@ -1034,7 +1072,7 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
             btn.setButtonText("Scanning\u2026").setDisabled(true);
             await this.plugin.saveSettings();
             btn.setButtonText("Scan").setDisabled(false);
-            new import_obsidian.Notice("Repo scan complete \u2014 refresh the panel to see results");
+            new import_obsidian.Notice("Repo scan complete - refresh the panel to see results");
           })
         );
         new import_obsidian.Setting(containerEl).setName("Scan depth").setDesc("How many folder levels deep to search for git repos").addDropdown(
@@ -1045,11 +1083,7 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
         );
       }
     }
-    containerEl.createEl("h3", { text: "Display" });
-    new import_obsidian.Setting(containerEl).setName("Sidebar side").addDropdown((d) => d.addOption("left", "Left").addOption("right", "Right").setValue(this.plugin.settings.sidebarSide).onChange(async (v) => {
-      this.plugin.settings.sidebarSide = v;
-      await this.plugin.saveSettings();
-    }));
+    new import_obsidian.Setting(containerEl).setName("Display").setHeading();
     new import_obsidian.Setting(containerEl).setName("Stats display").setDesc("How the stats bar is shown").addDropdown(
       (d) => d.addOption("default", "Default (pills with labels)").addOption("compact", "Compact (icons + numbers)").addOption("grid", "Grid (2-column)").setValue(this.plugin.settings.statsStyle).onChange(async (v) => {
         this.plugin.settings.statsStyle = v;
@@ -1077,13 +1111,13 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
         await this.plugin.saveSettings();
       }
     }));
-    new import_obsidian.Setting(containerEl).setName("Tooltip style").setDesc("Console \u2014 compact monospace. Modern \u2014 larger, with colored repo markers.").addDropdown(
+    new import_obsidian.Setting(containerEl).setName("Tooltip style").addDropdown(
       (d) => d.addOption("standard", "Standard (with repos)").addOption("simple", "Simple (no repos)").setValue(this.plugin.settings.tooltipStyle).onChange(async (v) => {
         this.plugin.settings.tooltipStyle = v;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(containerEl).setName("Demo mode").setDesc("Show fake contribution data \u2014 useful for screenshots or testing").addToggle((t) => t.setValue(this.plugin.settings.demoMode).onChange(async (v) => {
+    new import_obsidian.Setting(containerEl).setName("Demo mode").setDesc("Show fake contribution data - useful for screenshots or testing").addToggle((t) => t.setValue(this.plugin.settings.demoMode).onChange(async (v) => {
       this.plugin.settings.demoMode = v;
       await this.plugin.saveSettings();
     }));
@@ -1091,7 +1125,7 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
       this.plugin.settings.showLegend = v;
       await this.plugin.saveSettings();
     }));
-    containerEl.createEl("h3", { text: "Daily Notes" });
+    new import_obsidian.Setting(containerEl).setName("Daily Notes").setHeading();
     new import_obsidian.Setting(containerEl).setName("Daily notes folder").setDesc("Leave blank for vault root").addText((t) => {
       t.setPlaceholder("Daily Notes/").setValue(this.plugin.settings.dailyNoteFolder);
       t.onChange(debounce(async (v) => {
@@ -1118,16 +1152,13 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
     this.addSettingTab(new GitHubContributionsSettingTab(this.app, this));
     this.registerView(VIEW_TYPE, (leaf) => new ContributionsView(leaf, this));
     this.addRibbonIcon("github", "GitHub Contributions", () => this.activateView());
-    this.addCommand({ id: "open-github-contributions", name: "Open GitHub Contributions panel", callback: () => this.activateView() });
-    this.injectStyles();
+    this.addCommand({ id: "open-panel", name: "Open panel", callback: () => this.activateView() });
     this.injectPaletteStyles();
   }
   onunload() {
-    var _a, _b;
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE);
-    (_a = document.getElementById("gh-contributions-styles")) == null ? void 0 : _a.remove();
-    (_b = document.getElementById("gh-palette-styles")) == null ? void 0 : _b.remove();
-    document.querySelectorAll(".gh-tooltip").forEach((el) => el.remove());
+    var _a;
+    (_a = activeDocument.getElementById("gh-palette-styles")) == null ? void 0 : _a.remove();
+    activeDocument.querySelectorAll(".gh-tooltip").forEach((el) => el.remove());
   }
   async activateView() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE);
@@ -1135,7 +1166,7 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
       this.app.workspace.revealLeaf(existing[0]);
       return;
     }
-    const leaf = this.settings.sidebarSide === "left" ? this.app.workspace.getLeftLeaf(false) : this.app.workspace.getRightLeaf(false);
+    const leaf = this.app.workspace.getRightLeaf(false);
     if (leaf) {
       await leaf.setViewState({ type: VIEW_TYPE, active: true });
       this.app.workspace.revealLeaf(leaf);
@@ -1156,127 +1187,17 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
   }
   injectPaletteStyles() {
     var _a;
-    const existing = document.getElementById("gh-palette-styles");
+    const doc = activeDocument;
+    const existing = doc.getElementById("gh-palette-styles");
     if (existing)
       existing.remove();
     const p = (_a = PALETTES[this.settings.palette]) != null ? _a : PALETTES["classic"];
-    const style = document.createElement("style");
+    const style = doc.createElement("style");
     style.id = "gh-palette-styles";
     style.textContent = `
 body{--gh-c0:${p.dark[0]};--gh-c1:${p.dark[1]};--gh-c2:${p.dark[2]};--gh-c3:${p.dark[3]};--gh-c4:${p.dark[4]}}
 body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2]};--gh-c3:${p.light[3]};--gh-c4:${p.light[4]}}
     `;
-    document.head.appendChild(style);
-  }
-  injectStyles() {
-    if (document.getElementById("gh-contributions-styles"))
-      return;
-    const style = document.createElement("style");
-    style.id = "gh-contributions-styles";
-    style.textContent = `
-.gh-contributions-view{padding:12px 10px 16px;overflow-y:auto;overflow-x:hidden;user-select:none}
-.gh-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:6px}
-.gh-username{font-size:13px;font-weight:600;color:var(--text-normal);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-.gh-nav{display:flex;align-items:center;gap:3px;flex-shrink:0}
-.gh-nav-label{font-size:12px;color:var(--text-muted);min-width:52px;text-align:center;white-space:nowrap}
-.gh-nav-btn{background:none;border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:14px;line-height:1;padding:1px 6px;transition:background .15s}
-.gh-nav-btn:hover:not(:disabled){background:var(--background-modifier-hover);color:var(--text-normal)}
-.gh-nav-btn:disabled{opacity:.3;cursor:default}
-.gh-stats{display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap}
-.gh-stats--grid{display:grid!important;grid-template-columns:1fr 1fr}
-.gh-stat{display:flex;flex-direction:column;align-items:center;background:var(--background-secondary);border-radius:6px;padding:5px 7px;flex:1;min-width:0}
-.gh-stats--grid .gh-stat{flex:unset}
-.gh-stat--wide{grid-column:1 / -1}
-.gh-stat-val{font-size:13px;font-weight:700;color:var(--interactive-accent);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-.gh-stat-lbl{font-size:9px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;text-align:center}
-.gh-stats-compact{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;align-items:center}
-.gh-chip{display:inline-flex;align-items:center;gap:3px;background:var(--background-secondary);border-radius:4px;padding:3px 6px;font-size:11px;white-space:nowrap}
-.gh-chip-icon{font-size:10px}
-.gh-chip-val{font-weight:700;color:var(--interactive-accent)}
-.gh-stats-list{display:flex;flex-direction:column;gap:1px;margin-bottom:8px}
-.gh-stats-list-row{display:flex;align-items:baseline;gap:4px;font-size:11px;line-height:1.6}
-.gh-stats-list-icon{font-size:10px;width:14px;text-align:center;flex-shrink:0}
-.gh-stats-list-val{font-weight:700;color:var(--interactive-accent);font-size:12px}
-.gh-stats-list-lbl{color:var(--text-muted);font-size:11px}
-.gh-oauth-code{display:inline-block;font-size:22px;font-weight:700;letter-spacing:4px;color:var(--interactive-accent);font-family:var(--font-monospace);margin:6px 0;padding:4px 8px;background:var(--background-secondary);border-radius:6px}
-.gh-repo-line{margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid var(--background-modifier-border)}
-.gh-repo-line-icon{font-size:10px;color:var(--text-faint)}
-.gh-repo-line-name{font-size:11px;color:var(--text-muted)}
-.gh-graph-wrap{overflow-x:auto;padding-bottom:4px}
-.gh-month-lbl{font-size:9px;color:var(--text-faint)}
-.gh-cell{border-radius:2px;cursor:pointer;transition:transform .1s;flex-shrink:0;box-sizing:border-box}
-.gh-cell:hover{transform:scale(1.3);z-index:1;position:relative}
-.gh-cell--empty{background:transparent!important;cursor:default!important}
-.gh-cell--empty:hover{transform:none!important}
-.gh-today{outline:2px solid var(--interactive-accent)!important;outline-offset:1px}
-.gh-cell[data-level="0"]{background:var(--gh-c0)}
-.gh-cell[data-level="1"]{background:var(--gh-c1)}
-.gh-cell[data-level="2"]{background:var(--gh-c2)}
-.gh-cell[data-level="3"]{background:var(--gh-c3)}
-.gh-cell[data-level="4"]{background:var(--gh-c4)}
-.gh-legend{display:flex;align-items:center;gap:3px;margin-top:8px;justify-content:flex-end}
-.gh-legend-lbl{font-size:9px;color:var(--text-faint)}
-.gh-legend-cell{cursor:default!important}
-.gh-legend-cell:hover{transform:none!important}
-.gh-refresh-icon{margin-left:2px;font-size:13px!important}
-.gh-empty{display:flex;flex-direction:column;align-items:center;padding:24px 12px;text-align:center;gap:10px}
-.gh-empty-icon{font-size:32px}
-.gh-empty p{font-size:12px;color:var(--text-muted);line-height:1.5;margin:0}
-.gh-btn{background:var(--interactive-accent);border:none;border-radius:6px;color:var(--text-on-accent);cursor:pointer;font-size:12px;padding:6px 14px}
-.gh-btn:hover{filter:brightness(1.1)}
-.gh-error{padding:10px 12px;background:var(--background-modifier-error);border-radius:6px;color:var(--text-error);font-size:12px;margin:8px 0}
-.gh-skeleton-wrap{padding:4px 0}
-.gh-skeleton-header{height:14px;width:55%;margin-bottom:10px;border-radius:4px}
-.gh-skeleton-stats{height:44px;width:100%;margin-bottom:10px;border-radius:6px}
-.gh-skeleton-cell{border-radius:2px}
-.gh-skeleton{animation:gh-shimmer 1.4s infinite linear;background:linear-gradient(90deg,var(--background-modifier-border) 25%,var(--background-secondary) 50%,var(--background-modifier-border) 75%);background-size:200% 100%}
-@keyframes gh-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.gh-tooltip{position:fixed;background:#1a1a1a;color:#eee;border-radius:6px;padding:7px 10px;font-size:11px;line-height:1.6;pointer-events:none;display:none;z-index:9999;white-space:pre;box-shadow:0 2px 10px rgba(0,0,0,.35);font-family:var(--font-monospace)}
-.gh-tooltip strong{color:#fff;display:block;margin-bottom:2px;font-family:var(--font-interface)}
-.theme-light .gh-tooltip{background:#222}
-/* Console tooltip */
-.gh-tooltip--console{background:#161b22;border:1px solid rgba(255,255,255,0.18);border-radius:8px;padding:10px 13px;font-family:var(--font-monospace);min-width:180px;white-space:normal;box-shadow:0 0 0 1px rgba(255,255,255,0.06),0 8px 24px rgba(0,0,0,.4)}
-.gh-con-date{font-size:11px;font-weight:600;color:#3fb950;margin-bottom:4px}
-.gh-con-dash{border-top:1px dashed rgba(255,255,255,0.15);margin:6px 0}
-.gh-con-count-row{display:flex;align-items:baseline;gap:4px;margin-bottom:5px}
-.gh-con-count{font-size:15px;font-weight:700;color:#3fb950}
-.gh-con-count-lbl{font-size:11px;color:#8b949e}
-.gh-con-source-row{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:3px}
-.gh-con-source-icon{color:#8b949e;width:14px;display:flex;align-items:center;flex-shrink:0}
-.gh-con-source-icon svg{display:block}
-.gh-con-source-lbl{color:#cdd9e5;flex:1}
-.gh-con-source-val{color:#fff;font-weight:700;min-width:16px;text-align:right}
-.gh-con-repo-row{display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:3px}
-.gh-con-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.gh-con-repo-name{color:#8b949e;flex:1}
-.gh-con-repo-count{color:#8b949e;font-size:10px}
-.gh-con-hint{font-size:9px;color:#484f58;margin-top:6px;font-style:italic}
-.gh-con-no-contrib{font-size:12px;color:#8b949e}
-.gh-tooltip--modern{white-space:normal;padding:12px 14px;border-radius:10px;background:#161b22;border:1px solid rgba(255,255,255,0.12);box-shadow:0 8px 32px rgba(0,0,0,.6);min-width:190px;font-family:var(--font-interface)}
-.theme-light .gh-tooltip--modern{background:#1c2128;border-color:rgba(255,255,255,0.15)}
-/* Date */
-.gh-tip-date{font-size:13px;font-weight:600;color:#fff;margin-bottom:6px}
-/* Count row */
-.gh-tip-count-row{display:flex;align-items:baseline;gap:4px;margin-bottom:10px}
-.gh-tip-count{font-size:18px;font-weight:700;color:#3fb950}
-.gh-tip-count-lbl{font-size:13px;color:#fff;margin-left:3px;font-weight:400}
-/* Source section */
-.gh-tip-section{margin-bottom:8px}
-.gh-tip-source-row{display:flex;align-items:center;gap:8px;font-size:13px}
-.gh-tip-source-icon{color:#6e7681;width:14px;display:flex;align-items:center;flex-shrink:0}
-.gh-tip-source-icon svg{display:block}
-.gh-tip-source-lbl{flex:1;color:#fff;font-weight:400}
-.gh-tip-source-val{color:#fff;font-weight:500;min-width:16px;text-align:right}
-/* Repo rows \u2014 colored dot, monospace name, gray count */
-.gh-tip-repo-row{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:5px}
-.gh-tip-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-.gh-tip-repo-name{color:#fff;flex:1;font-family:var(--font-monospace);font-size:11px}
-.gh-tip-repo-count{color:#6e7681;font-size:11px}
-/* Divider */
-.gh-tip-divider{height:1px;background:rgba(255,255,255,0.1);margin:8px 0}
-/* Hint */
-.gh-tip-no-contrib{font-size:12px;color:#6e7681}
-    `;
-    document.head.appendChild(style);
+    doc.head.appendChild(style);
   }
 };
