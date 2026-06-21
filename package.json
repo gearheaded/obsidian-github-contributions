@@ -1,6 +1,6 @@
 {
   "name": "obsidian-github-contributions",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "GitHub contribution graph for Obsidian",
   "main": "main.js",
   "scripts": {

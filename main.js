@@ -491,7 +491,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
       if (Math.abs(w - this.panelWidth) > 5) {
         this.panelWidth = w;
         if (this.plugin.settings.sizePreset === "fit")
-          this.render();
+          void this.render();
       }
     });
     this.resizeObserver.observe(this.containerEl);
@@ -758,7 +758,9 @@ var ContributionsView = class extends import_obsidian.ItemView {
       if (this.tooltipEl)
         this.tooltipEl.setCssStyles({ display: "none" });
     });
-    cell.addEventListener("click", () => this.openOrCreateDailyNote(day.date));
+    cell.addEventListener("click", () => {
+      void this.openOrCreateDailyNote(day.date);
+    });
   }
   showTooltip(e, day) {
     if (!this.tooltipEl)
@@ -1183,7 +1185,8 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
     }
   }
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const savedData = await this.loadData();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, savedData != null ? savedData : {});
     if (this.settings.selectedYear > new Date().getFullYear())
       this.settings.selectedYear = new Date().getFullYear();
   }
@@ -1192,7 +1195,7 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
     this.injectPaletteStyles();
     this.app.workspace.getLeavesOfType(VIEW_TYPE).forEach((leaf) => {
       if (leaf.view instanceof ContributionsView)
-        leaf.view.refresh();
+        void leaf.view.refresh();
     });
   }
   injectPaletteStyles() {

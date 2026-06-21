@@ -196,6 +196,12 @@ interface DeviceCodeResponse {
 // We use Obsidian's requestUrl (not fetch) because the device flow endpoint
 // doesn't have CORS headers, so direct fetch() calls from Obsidian's webview fail.
 // Returns the user_code to display, device_code to poll with, and expiry/interval.
+interface TokenPollResponse {
+  access_token?: string;
+  error?: string;
+  error_description?: string;
+}
+
 async function requestDeviceCode(): Promise<DeviceCodeResponse> {
   let res;
   try {
@@ -209,7 +215,7 @@ async function requestDeviceCode(): Promise<DeviceCodeResponse> {
     throw new Error("Could not reach GitHub. Check your internet connection.");
   }
   if (res.status !== 200) throw new Error(`GitHub returned an error (${res.status}). Try again.`);
-  return res.json;
+  return res.json as DeviceCodeResponse;
 }
 
 // Step 2 of OAuth device flow: poll GitHub until the user approves or the code expires.
@@ -235,7 +241,7 @@ async function pollForToken(
     // Check if code has expired client-side before even polling
     if (Date.now() > deadline) throw new Error("Code expired. Please try again.");
 
-    let data: Record<string, string>;
+    let data: TokenPollResponse;
     try {
       const res = await requestUrl({
         url: GITHUB_TOKEN_URL,
@@ -247,7 +253,7 @@ async function pollForToken(
           grant_type: "urn:ietf:params:oauth:grant-type:device_code",
         }),
       });
-      data = res.json;
+      data = res.json as TokenPollResponse;
     } catch {
       // Network error - wait and retry rather than failing immediately
       await delay(5000);
@@ -363,7 +369,7 @@ interface NodePathModule {
   join(...parts: string[]): string;
 }
 interface NodeChildProcessModule {
-  execSync(command: string, options: { cwd: string; timeout: number; encoding: string; stdio: string[] }): string;
+  execSync(this: void, command: string, options: { cwd: string; timeout: number; encoding: string; stdio: string[] }): string;
 }
 // The subset of the Electron renderer's window object we depend on.
 interface ElectronWindow {
@@ -722,7 +728,7 @@ export class ContributionsView extends ItemView {
       const w = this.containerEl.clientWidth;
       if (Math.abs(w - this.panelWidth) > 5) {
         this.panelWidth = w;
-        if (this.plugin.settings.sizePreset === "fit") this.render();
+        if (this.plugin.settings.sizePreset === "fit") void this.render();
       }
     });
     this.resizeObserver.observe(this.containerEl);
@@ -1010,7 +1016,7 @@ export class ContributionsView extends ItemView {
 
     cell.addEventListener("mouseenter", (e: MouseEvent) => this.showTooltip(e, day));
     cell.addEventListener("mouseleave", () => { if (this.tooltipEl) this.tooltipEl.setCssStyles({ display: "none" }); });
-    cell.addEventListener("click", () => this.openOrCreateDailyNote(day.date));
+    cell.addEventListener("click", () => { void this.openOrCreateDailyNote(day.date); });
   }
 
   private showTooltip(e: MouseEvent, day: DayData) {
@@ -1552,7 +1558,8 @@ export default class GitHubContributionsPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const savedData = (await this.loadData()) as Partial<GitHubContributionsSettings> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, savedData ?? {});
     if (this.settings.selectedYear > new Date().getFullYear()) this.settings.selectedYear = new Date().getFullYear();
   }
 
@@ -1560,7 +1567,7 @@ export default class GitHubContributionsPlugin extends Plugin {
     await this.saveData(this.settings);
     this.injectPaletteStyles();
     this.app.workspace.getLeavesOfType(VIEW_TYPE).forEach(leaf => {
-      if (leaf.view instanceof ContributionsView) leaf.view.refresh();
+      if (leaf.view instanceof ContributionsView) void leaf.view.refresh();
     });
   }
 
