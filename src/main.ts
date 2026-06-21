@@ -1327,7 +1327,8 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
             .setButtonText("Connect GitHub")
             .setCta()
             .onClick(async () => {
-              btn.setButtonText("Connecting...").setDisabled(true);
+              btn.setButtonText("Connecting...");
+              btn.buttonEl.setAttr("disabled", "true");
               cancelled = false;
               try {
                 const device = await requestDeviceCode();
@@ -1365,14 +1366,15 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
                   oauthSetting.setDesc("⚠ " + msg);
                   new Notice("GitHub connection failed: " + msg);
                 }
-                btn.setButtonText("Connect GitHub").setDisabled(false);
+                btn.setButtonText("Connect GitHub");
+                btn.buttonEl.removeAttribute("disabled");
               }
             })
           );
 
           oauthSetting.addButton(btn => btn
             .setButtonText("Cancel")
-            .onClick(() => { cancelled = true; oauthSetting.setDesc("Cancelled."); btn.setDisabled(true); })
+            .onClick(() => { cancelled = true; oauthSetting.setDesc("Cancelled."); btn.buttonEl.setAttr("disabled", "true"); })
           );
         }
       } else {
@@ -1405,16 +1407,18 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
             // Store value in memory as user types but don't save/scan yet
             t.onChange(v => { this.plugin.settings.localRepoRoot = v.trim(); });
           })
-          .addButton(btn => btn
-            .setButtonText("Scan")
-            .setTooltip("Save path and scan for repositories")
-            .onClick(async () => {
-              btn.setButtonText("Scanning…").setDisabled(true);
+          .addButton(btn => {
+            btn.setButtonText("Scan");
+            btn.buttonEl.setAttr("title", "Save path and scan for repositories");
+            btn.onClick(async () => {
+              btn.setButtonText("Scanning…");
+              btn.buttonEl.setAttr("disabled", "true");
               await this.plugin.saveSettings();
-              btn.setButtonText("Scan").setDisabled(false);
+              btn.setButtonText("Scan");
+              btn.buttonEl.removeAttribute("disabled");
               new Notice("Repo scan complete - refresh the panel to see results");
-            })
-          );
+            });
+          });
 
         new Setting(containerEl)
           .setName("Scan depth")

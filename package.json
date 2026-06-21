@@ -1,6 +1,6 @@
 {
   "name": "obsidian-github-contributions",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "GitHub contribution graph for Obsidian",
   "main": "main.js",
   "scripts": {
@@ -14,7 +14,6 @@
     "@types/node": "^16.11.6",
     "@typescript-eslint/eslint-plugin": "5.29.0",
     "@typescript-eslint/parser": "5.29.0",
-    "builtin-modules": "3.3.0",
     "esbuild": "0.17.3",
     "obsidian": "latest",
     "tslib": "^2.4.0",

@@ -1009,7 +1009,8 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
           const oauthSetting = new import_obsidian.Setting(containerEl).setName("Connect GitHub account").setDesc("Click to start the authorization flow");
           oauthSetting.addButton(
             (btn) => btn.setButtonText("Connect GitHub").setCta().onClick(async () => {
-              btn.setButtonText("Connecting...").setDisabled(true);
+              btn.setButtonText("Connecting...");
+              btn.buttonEl.setAttr("disabled", "true");
               cancelled = false;
               try {
                 const device = await requestDeviceCode();
@@ -1040,7 +1041,8 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
                   oauthSetting.setDesc("\u26A0 " + msg);
                   new import_obsidian.Notice("GitHub connection failed: " + msg);
                 }
-                btn.setButtonText("Connect GitHub").setDisabled(false);
+                btn.setButtonText("Connect GitHub");
+                btn.buttonEl.removeAttribute("disabled");
               }
             })
           );
@@ -1048,7 +1050,7 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
             (btn) => btn.setButtonText("Cancel").onClick(() => {
               cancelled = true;
               oauthSetting.setDesc("Cancelled.");
-              btn.setDisabled(true);
+              btn.buttonEl.setAttr("disabled", "true");
             })
           );
         }
@@ -1075,14 +1077,18 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
           t.onChange((v) => {
             this.plugin.settings.localRepoRoot = v.trim();
           });
-        }).addButton(
-          (btn) => btn.setButtonText("Scan").setTooltip("Save path and scan for repositories").onClick(async () => {
-            btn.setButtonText("Scanning\u2026").setDisabled(true);
+        }).addButton((btn) => {
+          btn.setButtonText("Scan");
+          btn.buttonEl.setAttr("title", "Save path and scan for repositories");
+          btn.onClick(async () => {
+            btn.setButtonText("Scanning\u2026");
+            btn.buttonEl.setAttr("disabled", "true");
             await this.plugin.saveSettings();
-            btn.setButtonText("Scan").setDisabled(false);
+            btn.setButtonText("Scan");
+            btn.buttonEl.removeAttribute("disabled");
             new import_obsidian.Notice("Repo scan complete - refresh the panel to see results");
-          })
-        );
+          });
+        });
         new import_obsidian.Setting(containerEl).setName("Scan depth").setDesc("How many folder levels deep to search for git repos").addDropdown(
           (d) => d.addOption("2", "2 levels").addOption("3", "3 levels").addOption("4", "4 levels").addOption("5", "5 levels").addOption("0", "Unlimited (slow on large drives)").setValue(String(this.plugin.settings.scanDepth)).onChange(async (v) => {
             this.plugin.settings.scanDepth = parseInt(v);
