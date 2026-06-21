@@ -1556,9 +1556,15 @@ export default class GitHubContributionsPlugin extends Plugin {
 
   async activateView() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE);
-    if (existing.length > 0) { this.app.workspace.revealLeaf(existing[0]); return; }
+    if (existing.length > 0) {
+      void this.app.workspace.revealLeaf(existing[0]);
+      return;
+    }
     const leaf = this.app.workspace.getRightLeaf(false);
-    if (leaf) { await leaf.setViewState({ type: VIEW_TYPE, active: true }); this.app.workspace.revealLeaf(leaf); }
+    if (leaf) {
+      await leaf.setViewState({ type: VIEW_TYPE, active: true });
+      void this.app.workspace.revealLeaf(leaf);
+    }
   }
 
   async loadSettings() {
