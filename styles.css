@@ -46,11 +46,11 @@
 }
 .gh-nav-btn:hover:not(:disabled) { background: var(--background-modifier-hover); color: var(--text-normal); }
 .gh-nav-btn:disabled { opacity: .3; cursor: default; }
-.gh-refresh-icon { margin-left: 2px; font-size: 13px !important; }
+.gh-nav .gh-refresh-icon { margin-left: 2px; font-size: 13px; }
 
 /* ── Stats — default flex row ── */
 .gh-stats { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
-.gh-stats--grid { display: grid !important; grid-template-columns: 1fr 1fr; }
+.gh-stats.gh-stats--grid { display: grid; grid-template-columns: 1fr 1fr; }
 .gh-stat {
   display: flex;
   flex-direction: column;
@@ -112,9 +112,9 @@
   box-sizing: border-box;
 }
 .gh-cell:hover { transform: scale(1.3); z-index: 1; position: relative; }
-.gh-cell--empty { background: transparent !important; cursor: default !important; }
-.gh-cell--empty:hover { transform: none !important; }
-.gh-today { outline: 2px solid var(--interactive-accent) !important; outline-offset: 1px; }
+.gh-cell.gh-cell--empty { background: transparent; cursor: default; }
+.gh-cell.gh-cell--empty:hover { transform: none; }
+.gh-cell.gh-today { outline: 2px solid var(--interactive-accent); outline-offset: 1px; }
 
 /* Contribution level colours — set via CSS vars updated by injectPaletteStyles() */
 .gh-cell[data-level="0"] { background: var(--gh-c0); }
@@ -126,8 +126,8 @@
 /* ── Legend ── */
 .gh-legend { display: flex; align-items: center; gap: 3px; margin-top: 8px; justify-content: flex-end; }
 .gh-legend-lbl { font-size: 9px; color: var(--text-faint); }
-.gh-legend-cell { cursor: default !important; }
-.gh-legend-cell:hover { transform: none !important; }
+.gh-cell.gh-legend-cell { cursor: default; }
+.gh-cell.gh-legend-cell:hover { transform: none; }
 
 /* ── Empty state ── */
 .gh-empty { display: flex; flex-direction: column; align-items: center; padding: 24px 12px; text-align: center; gap: 10px; }

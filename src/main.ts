@@ -11,6 +11,18 @@ import {
   requestUrl,
 } from "obsidian";
 
+// Obsidian's settings modal (app.setting) is an internal, undocumented API -
+// there is no public type for it. We declare only the two methods we call so
+// we can avoid `any` entirely while still being honest that this is reaching
+// into internals.
+interface ObsidianInternalSettings {
+  open(): void;
+  openTabById(id: string): void;
+}
+interface AppWithSettings extends App {
+  setting: ObsidianInternalSettings;
+}
+
 // ########################################################################
 // Constants
 // ########################################################################
@@ -211,7 +223,7 @@ async function pollForToken(
   expiresIn: number,
   onCancel: () => boolean
 ): Promise<string> {
-  const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+  const delay = (ms: number) => new Promise(r => window.setTimeout(r, ms));
   let currentInterval = Math.max(intervalSecs, 5) * 1000; // minimum 5s per GitHub spec
   const deadline = Date.now() + expiresIn * 1000;
 
@@ -264,13 +276,17 @@ async function pollForToken(
   }
 }
 
+interface GitHubUserResponse {
+  login: string;
+}
+
 async function fetchGitHubUsername(token: string): Promise<string> {
   const res = await requestUrl({
     url: GITHUB_USER_URL,
     headers: { Authorization: `bearer ${token}` },
   });
   if (res.status !== 200) throw new Error("Could not fetch GitHub username");
-  return res.json.login;
+  return (res.json as GitHubUserResponse).login;
 }
 
 // ########################################################################
@@ -280,6 +296,28 @@ async function fetchGitHubUsername(token: string): Promise<string> {
 // Returns a Map<dateString, count> for easy merging with local git data.
 // Uses regular fetch (not requestUrl) because the GraphQL API has proper CORS headers.
 // Only requests the minimum data needed - no PR/issue/review data, just the calendar.
+// Typed shape of the GitHub GraphQL contribution calendar response.
+// Only the fields we actually request are declared here.
+interface GitHubContributionDay {
+  date: string;
+  contributionCount: number;
+}
+interface GitHubContributionWeek {
+  contributionDays: GitHubContributionDay[];
+}
+interface GitHubGraphQLResponse {
+  data?: {
+    user?: {
+      contributionsCollection?: {
+        contributionCalendar?: {
+          weeks?: GitHubContributionWeek[];
+        };
+      };
+    };
+  };
+  errors?: { message: string }[];
+}
+
 async function fetchGitHubContributions(
   username: string,
   token: string,
@@ -288,15 +326,16 @@ async function fetchGitHubContributions(
   const from = `${year}-01-01T00:00:00Z`;
   const to   = `${year}-12-31T23:59:59Z`;
   const query = `query($login:String!,$from:DateTime!,$to:DateTime!){user(login:$login){contributionsCollection(from:$from,to:$to){contributionCalendar{weeks{contributionDays{date contributionCount}}}}}}`;
-  const res = await fetch(GITHUB_GRAPHQL, {
+  const res = await requestUrl({
+    url: GITHUB_GRAPHQL,
     method: "POST",
     headers: { Authorization: `bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables: { login: username, from, to } }),
   });
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
-  const json = await res.json();
-  if (json.errors) throw new Error(json.errors[0]?.message ?? "GitHub API error");
-  const weeks = json?.data?.user?.contributionsCollection?.contributionCalendar?.weeks;
+  if (res.status !== 200) throw new Error(`GitHub API error: ${res.status}`);
+  const json = res.json as GitHubGraphQLResponse;
+  if (json.errors && json.errors.length > 0) throw new Error(json.errors[0].message);
+  const weeks = json.data?.user?.contributionsCollection?.contributionCalendar?.weeks;
   if (!weeks) throw new Error("No data returned. Check your username.");
   const map = new Map<string, number>();
   for (const week of weeks) {
@@ -311,13 +350,36 @@ async function fetchGitHubContributions(
 // Local Git
 // ########################################################################
 
-// window.require is available in Obsidian desktop (Electron) but not on mobile.
-// All local git functionality is gated behind this check so the plugin
-// loads safely on mobile without crashing.
+// Minimal typed surface of the Node.js APIs this plugin uses via Electron's
+// window.require. We only declare the handful of methods we actually call,
+// rather than pulling in full @types/node, since this runs in a renderer
+// context where most of the Node typings don't apply anyway.
+interface NodeFsModule {
+  readdirSync(path: string): string[];
+  statSync(path: string): { isDirectory(): boolean };
+}
+interface NodePathModule {
+  basename(path: string): string;
+  join(...parts: string[]): string;
+}
+interface NodeChildProcessModule {
+  execSync(command: string, options: { cwd: string; timeout: number; encoding: string; stdio: string[] }): string;
+}
+// The subset of the Electron renderer's window object we depend on.
+interface ElectronWindow {
+  require?: (moduleName: "fs") => NodeFsModule;
+}
+
 // window.require is only available in Obsidian desktop (Electron), not on mobile.
-// This check gates all Node.js/Electron API usage safely.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Electron exposes require on window; no typed alternative
-const isDesktop = !!(window as any).require;
+// This check gates all Node.js/Electron API usage safely so the plugin loads
+// without crashing on mobile, where window.require does not exist.
+const isDesktop = typeof (window as unknown as ElectronWindow).require === "function";
+
+// Thin typed wrapper around Electron's window.require, since each call site
+// needs a different module shape (fs, path, child_process).
+function electronRequire<T>(moduleName: string): T {
+  return (window as unknown as { require: (m: string) => T }).require(moduleName);
+}
 
 // Runs a git command in the given directory and returns stdout as a string.
 // Returns empty string on any error (non-git directory, git not installed, timeout).
@@ -325,8 +387,7 @@ const isDesktop = !!(window as any).require;
 function runGit(args: string, cwd: string): string {
   if (!isDesktop) return "";
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Electron require; no typed alternative exists
-    const { execSync } = (window as any).require("child_process");
+    const { execSync } = electronRequire<NodeChildProcessModule>("child_process");
     return execSync(`git ${args}`, { cwd, timeout: 8000, encoding: "utf8", stdio: ["pipe","pipe","pipe"] });
   } catch {
     return "";
@@ -343,10 +404,8 @@ async function discoverRepos(rootPath: string, maxDepth = 2): Promise<LocalRepo[
   const repos: LocalRepo[] = [];
   // maxDepth === 0 means unlimited
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Electron fs/path modules; no typed alternative
-    const fs = (window as any).require("fs");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Electron fs/path modules; no typed alternative
-    const path = (window as any).require("path");
+    const fs = electronRequire<NodeFsModule>("fs");
+    const path = electronRequire<NodePathModule>("path");
 
     const scanDir = (dir: string, depth: number) => {
       if (maxDepth !== 0 && depth > maxDepth) return;
@@ -808,7 +867,7 @@ export class ContributionsView extends ItemView {
     // Refresh icon button at end of nav row
     const refreshBtn = nav.createEl("button", { cls: "gh-nav-btn gh-refresh-icon", text: "↻" });
     refreshBtn.title = "Refresh";
-    refreshBtn.onclick = () => this.render();
+    refreshBtn.onclick = () => { void this.render(); };
   }
 
   private renderStats(container: HTMLElement, info: {
@@ -1023,7 +1082,7 @@ export class ContributionsView extends ItemView {
   }
 
   private makeGithubSvg(): SVGElement {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svg = activeDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("width", "13");
     svg.setAttribute("height", "13");
     svg.setAttribute("viewBox", "0 0 24 24");
@@ -1032,17 +1091,17 @@ export class ContributionsView extends ItemView {
     svg.setAttribute("stroke-width", "2");
     svg.setAttribute("stroke-linecap", "round");
     svg.setAttribute("stroke-linejoin", "round");
-    const p1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const p1 = activeDocument.createElementNS("http://www.w3.org/2000/svg", "path");
     p1.setAttribute("d", "M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4");
     svg.appendChild(p1);
-    const p2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const p2 = activeDocument.createElementNS("http://www.w3.org/2000/svg", "path");
     p2.setAttribute("d", "M9 18c-4.51 2-5-2-7-2");
     svg.appendChild(p2);
     return svg;
   }
 
   private makeLocalSvg(): SVGElement {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svg = activeDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("width", "13");
     svg.setAttribute("height", "13");
     svg.setAttribute("viewBox", "0 0 24 24");
@@ -1051,12 +1110,12 @@ export class ContributionsView extends ItemView {
     svg.setAttribute("stroke-width", "2");
     svg.setAttribute("stroke-linecap", "round");
     svg.setAttribute("stroke-linejoin", "round");
-    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    const rect = activeDocument.createElementNS("http://www.w3.org/2000/svg", "rect");
     rect.setAttribute("width", "18"); rect.setAttribute("height", "12");
     rect.setAttribute("x", "3"); rect.setAttribute("y", "4");
     rect.setAttribute("rx", "2"); rect.setAttribute("ry", "2");
     svg.appendChild(rect);
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    const line = activeDocument.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", "2"); line.setAttribute("x2", "22");
     line.setAttribute("y1", "20"); line.setAttribute("y2", "20");
     svg.appendChild(line);
@@ -1111,7 +1170,7 @@ export class ContributionsView extends ItemView {
   }
 
   private renderLegend(container: HTMLElement) {
-    const { cell, gap } = this.getCellSize();
+    const { cell } = this.getCellSize();
     const legend = container.createDiv({ cls: "gh-legend" });
     legend.createEl("span", { cls: "gh-legend-lbl", text: "Less" });
     for (let i = 0; i <= 4; i++) {
@@ -1131,10 +1190,9 @@ export class ContributionsView extends ItemView {
     wrap.createEl("p", { text: msg });
     const btn = wrap.createEl("button", { cls: "gh-btn", text: "Open Settings" });
     btn.onclick = () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.app as any).setting.open();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.app as any).setting.openTabById("github-contributions");
+      const appWithSettings = this.app as AppWithSettings;
+      appWithSettings.setting.open();
+      appWithSettings.setting.openTabById("github-contributions");
     };
   }
 
@@ -1204,9 +1262,6 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    new Setting(containerEl).setName("GitHub Contributions").setHeading();
-
-    // ── Data Sources
     new Setting(containerEl).setName("Data Sources").setHeading();
 
     new Setting(containerEl)
@@ -1284,9 +1339,8 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
                   })
                 );
 
-                // Open browser
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (window as any).open(device.verification_uri);
+                // Open browser to the GitHub device activation page
+                window.open(device.verification_uri);
 
                 // Poll for token
                 const token = await pollForToken(device.device_code, device.interval, device.expires_in, () => cancelled);
@@ -1480,8 +1534,8 @@ export default class GitHubContributionsPlugin extends Plugin {
     await this.loadSettings();
     this.addSettingTab(new GitHubContributionsSettingTab(this.app, this));
     this.registerView(VIEW_TYPE, (leaf: WorkspaceLeaf) => new ContributionsView(leaf, this));
-    this.addRibbonIcon("github", "GitHub Contributions", () => this.activateView());
-    this.addCommand({ id: "open-panel", name: "Open panel", callback: () => this.activateView() });
+    this.addRibbonIcon("github", "GitHub Contributions", () => { void this.activateView(); });
+    this.addCommand({ id: "open-panel", name: "Open panel", callback: () => { void this.activateView(); } });
     this.injectPaletteStyles();
   }
 

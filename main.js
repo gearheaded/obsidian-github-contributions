@@ -109,7 +109,7 @@ async function requestDeviceCode() {
 }
 async function pollForToken(deviceCode, intervalSecs, expiresIn, onCancel) {
   var _a, _b;
-  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+  const delay = (ms) => new Promise((r) => window.setTimeout(r, ms));
   let currentInterval = Math.max(intervalSecs, 5) * 1e3;
   const deadline = Date.now() + expiresIn * 1e3;
   while (true) {
@@ -168,21 +168,22 @@ async function fetchGitHubUsername(token) {
   return res.json.login;
 }
 async function fetchGitHubContributions(username, token, year) {
-  var _a, _b, _c, _d, _e, _f;
+  var _a, _b, _c, _d;
   const from = `${year}-01-01T00:00:00Z`;
   const to = `${year}-12-31T23:59:59Z`;
   const query = `query($login:String!,$from:DateTime!,$to:DateTime!){user(login:$login){contributionsCollection(from:$from,to:$to){contributionCalendar{weeks{contributionDays{date contributionCount}}}}}}`;
-  const res = await fetch(GITHUB_GRAPHQL, {
+  const res = await (0, import_obsidian.requestUrl)({
+    url: GITHUB_GRAPHQL,
     method: "POST",
     headers: { Authorization: `bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables: { login: username, from, to } })
   });
-  if (!res.ok)
+  if (res.status !== 200)
     throw new Error(`GitHub API error: ${res.status}`);
-  const json = await res.json();
-  if (json.errors)
-    throw new Error((_b = (_a = json.errors[0]) == null ? void 0 : _a.message) != null ? _b : "GitHub API error");
-  const weeks = (_f = (_e = (_d = (_c = json == null ? void 0 : json.data) == null ? void 0 : _c.user) == null ? void 0 : _d.contributionsCollection) == null ? void 0 : _e.contributionCalendar) == null ? void 0 : _f.weeks;
+  const json = res.json;
+  if (json.errors && json.errors.length > 0)
+    throw new Error(json.errors[0].message);
+  const weeks = (_d = (_c = (_b = (_a = json.data) == null ? void 0 : _a.user) == null ? void 0 : _b.contributionsCollection) == null ? void 0 : _c.contributionCalendar) == null ? void 0 : _d.weeks;
   if (!weeks)
     throw new Error("No data returned. Check your username.");
   const map = /* @__PURE__ */ new Map();
@@ -193,12 +194,15 @@ async function fetchGitHubContributions(username, token, year) {
   }
   return map;
 }
-var isDesktop = !!window.require;
+var isDesktop = typeof window.require === "function";
+function electronRequire(moduleName) {
+  return window.require(moduleName);
+}
 function runGit(args, cwd) {
   if (!isDesktop)
     return "";
   try {
-    const { execSync } = window.require("child_process");
+    const { execSync } = electronRequire("child_process");
     return execSync(`git ${args}`, { cwd, timeout: 8e3, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
   } catch (e) {
     return "";
@@ -209,8 +213,8 @@ async function discoverRepos(rootPath, maxDepth = 2) {
     return [];
   const repos = [];
   try {
-    const fs = window.require("fs");
-    const path = window.require("path");
+    const fs = electronRequire("fs");
+    const path = electronRequire("path");
     const scanDir = (dir, depth) => {
       if (maxDepth !== 0 && depth > maxDepth)
         return;
@@ -626,7 +630,9 @@ var ContributionsView = class extends import_obsidian.ItemView {
     }
     const refreshBtn = nav.createEl("button", { cls: "gh-nav-btn gh-refresh-icon", text: "\u21BB" });
     refreshBtn.title = "Refresh";
-    refreshBtn.onclick = () => this.render();
+    refreshBtn.onclick = () => {
+      void this.render();
+    };
   }
   renderStats(container, info) {
     var _a;
@@ -806,7 +812,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
     }
   }
   makeGithubSvg() {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svg = activeDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("width", "13");
     svg.setAttribute("height", "13");
     svg.setAttribute("viewBox", "0 0 24 24");
@@ -815,16 +821,16 @@ var ContributionsView = class extends import_obsidian.ItemView {
     svg.setAttribute("stroke-width", "2");
     svg.setAttribute("stroke-linecap", "round");
     svg.setAttribute("stroke-linejoin", "round");
-    const p1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const p1 = activeDocument.createElementNS("http://www.w3.org/2000/svg", "path");
     p1.setAttribute("d", "M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4");
     svg.appendChild(p1);
-    const p2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const p2 = activeDocument.createElementNS("http://www.w3.org/2000/svg", "path");
     p2.setAttribute("d", "M9 18c-4.51 2-5-2-7-2");
     svg.appendChild(p2);
     return svg;
   }
   makeLocalSvg() {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svg = activeDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("width", "13");
     svg.setAttribute("height", "13");
     svg.setAttribute("viewBox", "0 0 24 24");
@@ -833,7 +839,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
     svg.setAttribute("stroke-width", "2");
     svg.setAttribute("stroke-linecap", "round");
     svg.setAttribute("stroke-linejoin", "round");
-    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    const rect = activeDocument.createElementNS("http://www.w3.org/2000/svg", "rect");
     rect.setAttribute("width", "18");
     rect.setAttribute("height", "12");
     rect.setAttribute("x", "3");
@@ -841,7 +847,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
     rect.setAttribute("rx", "2");
     rect.setAttribute("ry", "2");
     svg.appendChild(rect);
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    const line = activeDocument.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", "2");
     line.setAttribute("x2", "22");
     line.setAttribute("y1", "20");
@@ -890,7 +896,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
     }
   }
   renderLegend(container) {
-    const { cell, gap } = this.getCellSize();
+    const { cell } = this.getCellSize();
     const legend = container.createDiv({ cls: "gh-legend" });
     legend.createEl("span", { cls: "gh-legend-lbl", text: "Less" });
     for (let i = 0; i <= 4; i++) {
@@ -907,8 +913,9 @@ var ContributionsView = class extends import_obsidian.ItemView {
     wrap.createEl("p", { text: msg });
     const btn = wrap.createEl("button", { cls: "gh-btn", text: "Open Settings" });
     btn.onclick = () => {
-      this.app.setting.open();
-      this.app.setting.openTabById("github-contributions");
+      const appWithSettings = this.app;
+      appWithSettings.setting.open();
+      appWithSettings.setting.openTabById("github-contributions");
     };
   }
   renderSkeleton(container) {
@@ -967,7 +974,6 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian.Setting(containerEl).setName("GitHub Contributions").setHeading();
     new import_obsidian.Setting(containerEl).setName("Data Sources").setHeading();
     new import_obsidian.Setting(containerEl).setName("Source").setDesc("Which contributions to display").addDropdown(
       (d) => d.addOption("github", "GitHub only").addOption("local", "Local git only").addOption("both", "Both").setValue(this.plugin.settings.dataSource).onChange(async (v) => {
@@ -1151,8 +1157,12 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
     await this.loadSettings();
     this.addSettingTab(new GitHubContributionsSettingTab(this.app, this));
     this.registerView(VIEW_TYPE, (leaf) => new ContributionsView(leaf, this));
-    this.addRibbonIcon("github", "GitHub Contributions", () => this.activateView());
-    this.addCommand({ id: "open-panel", name: "Open panel", callback: () => this.activateView() });
+    this.addRibbonIcon("github", "GitHub Contributions", () => {
+      void this.activateView();
+    });
+    this.addCommand({ id: "open-panel", name: "Open panel", callback: () => {
+      void this.activateView();
+    } });
     this.injectPaletteStyles();
   }
   onunload() {
