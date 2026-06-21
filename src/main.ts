@@ -41,6 +41,12 @@ const GITHUB_CLIENT_ID = "Ov23litfj5GbQ8mw81VV";
 
 const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
+// Minimum time between automatic data refreshes when the panel regains focus.
+// Prevents re-fetching from GitHub's API or re-scanning the filesystem every
+// time the user simply switches back to this tab. The manual refresh button
+// always bypasses this cooldown.
+const AUTO_REFRESH_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
 // ########################################################################
 // Types
 // ########################################################################
@@ -709,6 +715,7 @@ export class ContributionsView extends ItemView {
   tooltipEl: HTMLDivElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private panelWidth = 0;
+  private lastFetchTime = 0;
 
   constructor(leaf: WorkspaceLeaf, plugin: GitHubContributionsPlugin) {
     super(leaf);
@@ -728,11 +735,21 @@ export class ContributionsView extends ItemView {
       const w = this.containerEl.clientWidth;
       if (Math.abs(w - this.panelWidth) > 5) {
         this.panelWidth = w;
-        if (this.plugin.settings.sizePreset === "fit") void this.render();
+        if (this.plugin.settings.sizePreset === "fit") void this.render(false);
       }
     });
     this.resizeObserver.observe(this.containerEl);
     this.panelWidth = this.containerEl.clientWidth;
+
+    // Re-render (subject to the cooldown) whenever this panel becomes the
+    // active leaf - e.g. the user switches back to this tab after working
+    // elsewhere. registerEvent() handles cleanup automatically on unload.
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        if (leaf === this.leaf) void this.render(false);
+      })
+    );
+
     await this.render();
   }
 
@@ -761,7 +778,15 @@ export class ContributionsView extends ItemView {
     return { cell, gap };
   }
 
-  private async render() {
+  // cachedData holds the last successfully fetched result so cooldown-skipped
+  // renders (e.g. refocusing the panel) can redraw from memory instead of
+  // re-fetching from GitHub or re-scanning the filesystem.
+  private cachedData: { days: Map<string, DayData>; totalGH: number; totalLocal: number; repos: LocalRepo[] } | null = null;
+
+  // force=true bypasses the auto-refresh cooldown (used by the manual refresh
+  // button and the very first render). force=false is used when the panel
+  // regains focus - if data was fetched recently, the cached result is reused.
+  private async render(force = true) {
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     container.addClass("gh-contributions-view");
@@ -781,24 +806,36 @@ export class ContributionsView extends ItemView {
       this.renderEmpty(container, "local"); return;
     }
 
-    this.renderSkeleton(container);
+    const withinCooldown = Date.now() - this.lastFetchTime < AUTO_REFRESH_COOLDOWN_MS;
+    const canUseCache = !force && withinCooldown && this.cachedData;
+
+    if (!canUseCache) this.renderSkeleton(container);
 
     try {
-      // Discover repos if needed
-      let repos: LocalRepo[] = [];
-      if (needsLocal && s.localRepoRoot) {
-        repos = await discoverRepos(s.localRepoRoot, s.scanDepth);
-      }
-
+      let repos: LocalRepo[];
       let days: Map<string, DayData>;
-      let totalGH = 0, totalLocal = 0;
+      let totalGH: number, totalLocal: number;
 
-      if (s.demoMode) {
-        days = buildDemoData(this.displayYear);
-        totalGH = [...days.values()].reduce((a, d) => a + d.githubCount, 0);
+      if (canUseCache && this.cachedData) {
+        ({ days, totalGH, totalLocal, repos } = this.cachedData);
       } else {
-        const result = await buildDayMap(s, this.displayYear, repos);
-        days = result.days; totalGH = result.totalGH; totalLocal = result.totalLocal;
+        // Discover repos if needed
+        repos = [];
+        if (needsLocal && s.localRepoRoot) {
+          repos = await discoverRepos(s.localRepoRoot, s.scanDepth);
+        }
+
+        if (s.demoMode) {
+          days = buildDemoData(this.displayYear);
+          totalGH = [...days.values()].reduce((a, d) => a + d.githubCount, 0);
+          totalLocal = 0;
+        } else {
+          const result = await buildDayMap(s, this.displayYear, repos);
+          days = result.days; totalGH = result.totalGH; totalLocal = result.totalLocal;
+        }
+
+        this.cachedData = { days, totalGH, totalLocal, repos };
+        this.lastFetchTime = Date.now();
       }
 
       container.empty();

@@ -36,6 +36,7 @@ var GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
 var GITHUB_USER_URL = "https://api.github.com/user";
 var GITHUB_CLIENT_ID = "Ov23litfj5GbQ8mw81VV";
 var MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+var AUTO_REFRESH_COOLDOWN_MS = 5 * 60 * 1e3;
 var DEFAULT_SETTINGS = {
   authMethod: "oauth",
   githubToken: "",
@@ -471,6 +472,11 @@ var ContributionsView = class extends import_obsidian.ItemView {
     this.tooltipEl = null;
     this.resizeObserver = null;
     this.panelWidth = 0;
+    this.lastFetchTime = 0;
+    // cachedData holds the last successfully fetched result so cooldown-skipped
+    // renders (e.g. refocusing the panel) can redraw from memory instead of
+    // re-fetching from GitHub or re-scanning the filesystem.
+    this.cachedData = null;
     this.plugin = plugin;
     this.displayYear = plugin.settings.selectedYear;
     this.displayMonth = new Date().getMonth();
@@ -491,11 +497,17 @@ var ContributionsView = class extends import_obsidian.ItemView {
       if (Math.abs(w - this.panelWidth) > 5) {
         this.panelWidth = w;
         if (this.plugin.settings.sizePreset === "fit")
-          void this.render();
+          void this.render(false);
       }
     });
     this.resizeObserver.observe(this.containerEl);
     this.panelWidth = this.containerEl.clientWidth;
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        if (leaf === this.leaf)
+          void this.render(false);
+      })
+    );
     await this.render();
   }
   async onClose() {
@@ -519,7 +531,10 @@ var ContributionsView = class extends import_obsidian.ItemView {
     const cell = Math.max(5, Math.floor((available - gap * (cols - 1)) / cols));
     return { cell, gap };
   }
-  async render() {
+  // force=true bypasses the auto-refresh cooldown (used by the manual refresh
+  // button and the very first render). force=false is used when the panel
+  // regains focus - if data was fetched recently, the cached result is reused.
+  async render(force = true) {
     var _a;
     const container = this.containerEl.children[1];
     container.empty();
@@ -538,22 +553,33 @@ var ContributionsView = class extends import_obsidian.ItemView {
       this.renderEmpty(container, "local");
       return;
     }
-    this.renderSkeleton(container);
+    const withinCooldown = Date.now() - this.lastFetchTime < AUTO_REFRESH_COOLDOWN_MS;
+    const canUseCache = !force && withinCooldown && this.cachedData;
+    if (!canUseCache)
+      this.renderSkeleton(container);
     try {
-      let repos = [];
-      if (needsLocal && s.localRepoRoot) {
-        repos = await discoverRepos(s.localRepoRoot, s.scanDepth);
-      }
+      let repos;
       let days;
-      let totalGH = 0, totalLocal = 0;
-      if (s.demoMode) {
-        days = buildDemoData(this.displayYear);
-        totalGH = [...days.values()].reduce((a, d) => a + d.githubCount, 0);
+      let totalGH, totalLocal;
+      if (canUseCache && this.cachedData) {
+        ({ days, totalGH, totalLocal, repos } = this.cachedData);
       } else {
-        const result = await buildDayMap(s, this.displayYear, repos);
-        days = result.days;
-        totalGH = result.totalGH;
-        totalLocal = result.totalLocal;
+        repos = [];
+        if (needsLocal && s.localRepoRoot) {
+          repos = await discoverRepos(s.localRepoRoot, s.scanDepth);
+        }
+        if (s.demoMode) {
+          days = buildDemoData(this.displayYear);
+          totalGH = [...days.values()].reduce((a, d) => a + d.githubCount, 0);
+          totalLocal = 0;
+        } else {
+          const result = await buildDayMap(s, this.displayYear, repos);
+          days = result.days;
+          totalGH = result.totalGH;
+          totalLocal = result.totalLocal;
+        }
+        this.cachedData = { days, totalGH, totalLocal, repos };
+        this.lastFetchTime = Date.now();
       }
       container.empty();
       const streaks = calculateStreaks(days, this.displayYear);
