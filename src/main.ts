@@ -9,6 +9,7 @@ import {
   moment,
   TFile,
   requestUrl,
+  addIcon,
 } from "obsidian";
 
 // Obsidian's settings modal (app.setting) is an internal, undocumented API -
@@ -139,7 +140,7 @@ type Palette = "classic" | "high-contrast" | "cobalt" | "neon" | "ember";
 type StatsStyle = "compact" | "default" | "grid";
 type TooltipStyle = "standard" | "simple";
 
-// Each palette has 5 colours for contribution levels 0–4.
+// Each palette has 5 colors for contribution levels 0–4.
 // Level 0 = no contributions (empty cell), level 4 = highest activity.
 // Separate dark/light variants so the graph respects Obsidian's theme.
 // These are injected as CSS custom properties (--gh-c0 through --gh-c4)
@@ -727,7 +728,7 @@ export class ContributionsView extends ItemView {
 
   getViewType() { return VIEW_TYPE; }
   getDisplayText() { return "GitHub Contributions"; }
-  getIcon() { return "github"; }
+  getIcon() { return "github-contributions"; }
 
   async onOpen() {
     // Watch panel width for fit mode
@@ -1279,10 +1280,10 @@ export class ContributionsView extends ItemView {
 // ########################################################################
 // Helpers
 // ########################################################################
-// Maps a contribution count to a colour level 0–4.
+// Maps a contribution count to a color level 0–4.
 // These thresholds roughly mirror GitHub's own contribution graph levels.
 // Level 0 = empty, level 4 = most active. Adjust thresholds here to change
-// how aggressively the graph colours - useful if your commit volume is very
+// how aggressively the graph colors - useful if your commit volume is very
 // high or very low compared to the defaults.
 function countToLevel(n: number): number {
   if (n === 0) return 0;
@@ -1487,8 +1488,8 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Colour palette")
-      .setDesc("Colour scheme for contribution cells")
+      .setName("Color palette")
+      .setDesc("Color scheme for contribution cells")
       .addDropdown(d => d
         .addOption("classic",       "Classic (GitHub greens)")
         .addOption("high-contrast", "High contrast (vivid greens)")
@@ -1547,7 +1548,7 @@ class GitHubContributionsSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Show legend")
-      .setDesc("Show the Less / More colour legend below the graph")
+      .setDesc("Show the Less / More color legend below the graph")
       .addToggle(t => t.setValue(this.plugin.settings.showLegend)
         .onChange(async v => { this.plugin.settings.showLegend = v; await this.plugin.saveSettings(); }));
 
@@ -1578,16 +1579,23 @@ export default class GitHubContributionsPlugin extends Plugin {
   settings: GitHubContributionsSettings = { ...DEFAULT_SETTINGS };
 
   async onload() {
+    addIcon("github-contributions", `
+      <path d="M35 40 C35 52 48 52 57 52" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/>
+      <path d="M35 33 L35 67" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/>
+      <rect x="24" y="11" width="22" height="22" rx="6" fill="currentColor"/>
+      <rect x="24" y="67" width="22" height="22" rx="6" fill="currentColor"/>
+      <rect x="57" y="41" width="22" height="22" rx="6" fill="currentColor"/>
+    `);
     await this.loadSettings();
     this.addSettingTab(new GitHubContributionsSettingTab(this.app, this));
     this.registerView(VIEW_TYPE, (leaf: WorkspaceLeaf) => new ContributionsView(leaf, this));
-    this.addRibbonIcon("github", "GitHub Contributions", () => { void this.activateView(); });
+    this.addRibbonIcon("github-contributions", "GitHub Contributions", () => { void this.activateView(); });
     this.addCommand({ id: "open-panel", name: "Open panel", callback: () => { void this.activateView(); } });
     this.injectPaletteStyles();
   }
 
   onunload() {
-    activeDocument.getElementById("gh-palette-styles")?.remove();
+    window.document.getElementById("gh-palette-styles")?.remove();
     activeDocument.querySelectorAll(".gh-tooltip").forEach(el => el.remove());
   }
 
@@ -1619,13 +1627,16 @@ export default class GitHubContributionsPlugin extends Plugin {
   }
 
   injectPaletteStyles() {
-    const doc = activeDocument;
+    // Use the main window document (not activeDocument) so the CSS vars are
+    // always injected into the top-level document. activeDocument can point to
+    // a popout window or be unresolved during onload(), causing the style tag
+    // to land in the wrong place and leaving cells colorless until a reload.
+    const doc = window.document;
     const existing = doc.getElementById("gh-palette-styles");
     if (existing) existing.remove();
     const p = PALETTES[this.settings.palette] ?? PALETTES["classic"];
     const style = doc.createElement("style");
     style.id = "gh-palette-styles";
-    // Use body instead of :root for reliability in Obsidian's DOM
     style.textContent = `
 body{--gh-c0:${p.dark[0]};--gh-c1:${p.dark[1]};--gh-c2:${p.dark[2]};--gh-c3:${p.dark[3]};--gh-c4:${p.dark[4]}}
 body.theme-light{--gh-c0:${p.light[0]};--gh-c1:${p.light[1]};--gh-c2:${p.light[2]};--gh-c3:${p.light[3]};--gh-c4:${p.light[4]}}

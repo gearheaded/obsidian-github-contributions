@@ -116,7 +116,7 @@
 .gh-cell.gh-cell--empty:hover { transform: none; }
 .gh-cell.gh-today { outline: 2px solid var(--interactive-accent); outline-offset: 1px; }
 
-/* Contribution level colours — set via CSS vars updated by injectPaletteStyles() */
+/* Contribution level colors — set via CSS vars updated by injectPaletteStyles() */
 .gh-cell[data-level="0"] { background: var(--gh-c0); }
 .gh-cell[data-level="1"] { background: var(--gh-c1); }
 .gh-cell[data-level="2"] { background: var(--gh-c2); }

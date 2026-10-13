@@ -489,7 +489,7 @@ var ContributionsView = class extends import_obsidian.ItemView {
     return "GitHub Contributions";
   }
   getIcon() {
-    return "github";
+    return "github-contributions";
   }
   async onOpen() {
     this.resizeObserver = new ResizeObserver(() => {
@@ -1130,7 +1130,7 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(containerEl).setName("Colour palette").setDesc("Colour scheme for contribution cells").addDropdown(
+    new import_obsidian.Setting(containerEl).setName("Color palette").setDesc("Color scheme for contribution cells").addDropdown(
       (d) => d.addOption("classic", "Classic (GitHub greens)").addOption("high-contrast", "High contrast (vivid greens)").addOption("cobalt", "Cobalt (blue to cyan)").addOption("neon", "Neon (purple to yellow)").addOption("ember", "Ember (amber to gold)").setValue(this.plugin.settings.palette).onChange(async (v) => {
         this.plugin.settings.palette = v;
         await this.plugin.saveSettings();
@@ -1161,7 +1161,7 @@ var GitHubContributionsSettingTab = class extends import_obsidian.PluginSettingT
       this.plugin.settings.demoMode = v;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("Show legend").setDesc("Show the Less / More colour legend below the graph").addToggle((t) => t.setValue(this.plugin.settings.showLegend).onChange(async (v) => {
+    new import_obsidian.Setting(containerEl).setName("Show legend").setDesc("Show the Less / More color legend below the graph").addToggle((t) => t.setValue(this.plugin.settings.showLegend).onChange(async (v) => {
       this.plugin.settings.showLegend = v;
       await this.plugin.saveSettings();
     }));
@@ -1188,10 +1188,17 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
     this.settings = { ...DEFAULT_SETTINGS };
   }
   async onload() {
+    (0, import_obsidian.addIcon)("github-contributions", `
+      <path d="M35 40 C35 52 48 52 57 52" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/>
+      <path d="M35 33 L35 67" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/>
+      <rect x="24" y="11" width="22" height="22" rx="6" fill="currentColor"/>
+      <rect x="24" y="67" width="22" height="22" rx="6" fill="currentColor"/>
+      <rect x="57" y="41" width="22" height="22" rx="6" fill="currentColor"/>
+    `);
     await this.loadSettings();
     this.addSettingTab(new GitHubContributionsSettingTab(this.app, this));
     this.registerView(VIEW_TYPE, (leaf) => new ContributionsView(leaf, this));
-    this.addRibbonIcon("github", "GitHub Contributions", () => {
+    this.addRibbonIcon("github-contributions", "GitHub Contributions", () => {
       void this.activateView();
     });
     this.addCommand({ id: "open-panel", name: "Open panel", callback: () => {
@@ -1201,7 +1208,7 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
   }
   onunload() {
     var _a;
-    (_a = activeDocument.getElementById("gh-palette-styles")) == null ? void 0 : _a.remove();
+    (_a = window.document.getElementById("gh-palette-styles")) == null ? void 0 : _a.remove();
     activeDocument.querySelectorAll(".gh-tooltip").forEach((el) => el.remove());
   }
   async activateView() {
@@ -1232,7 +1239,7 @@ var GitHubContributionsPlugin = class extends import_obsidian.Plugin {
   }
   injectPaletteStyles() {
     var _a;
-    const doc = activeDocument;
+    const doc = window.document;
     const existing = doc.getElementById("gh-palette-styles");
     if (existing)
       existing.remove();
