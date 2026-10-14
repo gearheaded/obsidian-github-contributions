@@ -48,6 +48,15 @@ const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct
 // always bypasses this cooldown.
 const AUTO_REFRESH_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
+// How long to wait before retrying after a failed automatic refresh.
+// Prevents hammering the API when the network is down. Manual refresh always
+// bypasses this.
+const AUTO_REFRESH_FAILURE_COOLDOWN_MS = 60 * 1000; // 1 minute
+
+// How often the background timer checks for new contributions while Obsidian
+// is running, even without any user interaction.
+const AUTO_REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+
 // ########################################################################
 // Types
 // ########################################################################
@@ -706,6 +715,27 @@ function mostRecentRepo(repos: LocalRepo[]): string | null {
 }
 
 // ########################################################################
+// Quiet refresh helpers
+// ########################################################################
+// Returns true if any contribution count differs between oldDays and newDays.
+// Only compares counts, not the full DayData structure. A missing date in
+// either map that has a non-zero count in the other is treated as a change.
+function hasContributionChanges(
+  oldDays: Map<string, DayData>,
+  newDays: Map<string, DayData>
+): boolean {
+  // Check all dates in new data
+  for (const [date, d] of newDays) {
+    if ((oldDays.get(date)?.count ?? 0) !== d.count) return true;
+  }
+  // Check dates in old data that may be missing from new (shouldn't happen, but be safe)
+  for (const [date, d] of oldDays) {
+    if (d.count > 0 && !newDays.has(date)) return true;
+  }
+  return false;
+}
+
+// ########################################################################
 // View
 // ########################################################################
 export class ContributionsView extends ItemView {
@@ -717,6 +747,22 @@ export class ContributionsView extends ItemView {
   private resizeObserver: ResizeObserver | null = null;
   private panelWidth = 0;
   private lastFetchTime = 0;
+  private lastFailTime = 0;     // timestamp of last failed auto-refresh
+  private fetchInFlight = false; // concurrent request guard
+
+  // References to stat DOM elements for in-place updates during quiet refresh.
+  // Set during the initial full render, nulled on full rebuild.
+  private statTotalEl: HTMLElement | null = null;
+  private statStreakEl: HTMLElement | null = null;
+  private statBestEl: HTMLElement | null = null;
+  private statSinceEl: HTMLElement | null = null;
+  private statRepoEl: HTMLElement | null = null;
+  private graphWrapEl: HTMLElement | null = null as HTMLElement | null;
+
+  // The date string ("YYYY-MM-DD") that was "today" when the graph was last
+  // rendered. Used to detect midnight rollover even when contribution counts
+  // haven't changed.
+  private renderedDate = "";
 
   constructor(leaf: WorkspaceLeaf, plugin: GitHubContributionsPlugin) {
     super(leaf);
@@ -784,10 +830,138 @@ export class ContributionsView extends ItemView {
   // re-fetching from GitHub or re-scanning the filesystem.
   private cachedData: { days: Map<string, DayData>; totalGH: number; totalLocal: number; repos: LocalRepo[] } | null = null;
 
+  // Triggered by background auto-refresh sources (window focus, 15-min timer).
+  // Respects cooldowns and the concurrent-request guard. Bypasses nothing.
+  async autoRefresh() {
+    const now = Date.now();
+    if (this.fetchInFlight) return;
+    if (now - this.lastFetchTime < AUTO_REFRESH_COOLDOWN_MS) return;
+    if (now - this.lastFailTime < AUTO_REFRESH_FAILURE_COOLDOWN_MS) return;
+
+    const s = this.plugin.settings;
+    const needsGH = s.dataSource === "github" || s.dataSource === "both";
+    const needsLocal = s.dataSource === "local" || s.dataSource === "both";
+    if (needsGH && (!s.githubToken || !s.githubUsername)) return;
+    if (needsLocal && !s.localRepoRoot) return;
+
+    this.fetchInFlight = true;
+    try {
+      let repos: LocalRepo[] = [];
+      if (needsLocal && s.localRepoRoot) {
+        repos = await discoverRepos(s.localRepoRoot, s.scanDepth);
+      }
+
+      let days: Map<string, DayData>;
+      let totalGH: number, totalLocal: number;
+      if (s.demoMode) {
+        days = buildDemoData(this.displayYear);
+        totalGH = [...days.values()].reduce((a, d) => a + d.githubCount, 0);
+        totalLocal = 0;
+      } else {
+        const result = await buildDayMap(s, this.displayYear, repos);
+        days = result.days; totalGH = result.totalGH; totalLocal = result.totalLocal;
+      }
+
+      // Compare new data against what's currently displayed.
+      // A changed date (midnight rollover) or changed contribution counts both
+      // trigger a DOM update. If nothing changed, leave the panel alone entirely.
+      const today = moment().format("YYYY-MM-DD");
+      const dateChanged = today !== this.renderedDate;
+      const dataChanged = !this.cachedData || hasContributionChanges(this.cachedData.days, days);
+
+      if (dateChanged || dataChanged) {
+        this.cachedData = { days, totalGH, totalLocal, repos };
+        this.lastFetchTime = Date.now();
+        // If we still have live element refs, do a quiet in-place update.
+        // Otherwise fall back to a full render (e.g. panel was rebuilt elsewhere).
+        if (this.graphWrapEl && this.graphWrapEl.isConnected) {
+          this.quietUpdate(days, totalGH, totalLocal, repos);
+          this.renderedDate = today;
+        } else {
+          await this.render(true);
+        }
+      } else {
+        // Data unchanged - still counts as a successful check
+        this.lastFetchTime = Date.now();
+      }
+    } catch {
+      this.lastFailTime = Date.now();
+    } finally {
+      this.fetchInFlight = false;
+    }
+  }
+
+  // Updates the graph subtree and stat elements in place without rebuilding the
+  // panel. Preserves scroll position across the graph rebuild.
+  private quietUpdate(
+    days: Map<string, DayData>,
+    totalGH: number,
+    totalLocal: number,
+    repos: LocalRepo[]
+  ) {
+    const s = this.plugin.settings;
+    const streaks = calculateStreaks(days, this.displayYear);
+    const sinceCommit = daysSinceLastCommit(days);
+    const recentRepo = s.demoMode ? "my-project" : mostRecentRepo(repos);
+    const total = totalGH + totalLocal;
+    const showLocal = s.dataSource === "local" || s.dataSource === "both";
+    const style = s.statsStyle ?? "default";
+
+    // Update stat text nodes in place
+    if (this.statTotalEl) this.statTotalEl.setText(String(total));
+    if (this.statStreakEl) this.statStreakEl.setText(streaks.current + "d");
+    if (this.statBestEl) this.statBestEl.setText(streaks.longest + "d");
+    if (this.statSinceEl && showLocal && sinceCommit !== null) {
+      this.statSinceEl.setText(sinceCommit === 0 ? "today" : sinceCommit + "d ago");
+    }
+    if (this.statRepoEl && recentRepo) {
+      if (style === "grid") {
+        const maxLen = 16;
+        this.statRepoEl.setText(recentRepo.length > maxLen ? recentRepo.slice(0, maxLen - 1) + "…" : recentRepo);
+        this.statRepoEl.title = recentRepo;
+      } else {
+        this.statRepoEl.setText(recentRepo);
+      }
+    }
+
+    // Rebuild graph subtree, preserving scroll position
+    if (this.graphWrapEl) {
+      const scrollLeft = this.graphWrapEl.scrollLeft;
+      const parent = this.graphWrapEl.parentElement;
+      if (parent) {
+        this.graphWrapEl.remove();
+        this.graphWrapEl = null;
+        if (this.viewMode === "year") {
+          const weeks = buildYearWeeks(this.displayYear, days);
+          this.renderYearGrid(parent, weeks);
+        } else {
+          const weeks = buildMonthDays(this.displayYear, this.displayMonth, days);
+          this.renderMonthGrid(parent, weeks);
+        }
+        // graphWrapEl is set again by renderYearGrid/renderMonthGrid above
+        const newWrap = this.graphWrapEl as HTMLElement | null;
+        if (newWrap) newWrap.scrollLeft = scrollLeft;
+      }
+    }
+  }
+
   // force=true bypasses the auto-refresh cooldown (used by the manual refresh
   // button and the very first render). force=false is used when the panel
   // regains focus - if data was fetched recently, the cached result is reused.
-  private async render(force = true) {
+  // resetScroll=true means the user navigated to a different year/month, so the
+  // scroll position should reset rather than be preserved.
+  private async render(force = true, resetScroll = false) {
+    // Capture scroll before clearing anything so manual refresh preserves position.
+    const prevScrollLeft = resetScroll ? 0 : ((this.graphWrapEl as HTMLElement | null)?.scrollLeft ?? 0);
+
+    // Clear element refs - they'll be set again during this render
+    this.statTotalEl = null;
+    this.statStreakEl = null;
+    this.statBestEl = null;
+    this.statSinceEl = null;
+    this.statRepoEl = null;
+    this.graphWrapEl = null;
+
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     container.addClass("gh-contributions-view");
@@ -840,6 +1014,7 @@ export class ContributionsView extends ItemView {
       }
 
       container.empty();
+      this.graphWrapEl = null;
 
       const streaks = calculateStreaks(days, this.displayYear);
       const sinceCommit = daysSinceLastCommit(days);
@@ -864,6 +1039,15 @@ export class ContributionsView extends ItemView {
         this.renderMonthGrid(container, weeks);
       }
 
+      // Restore scroll after rebuild, unless the user navigated to a different
+      // year/month (resetScroll=true), in which case leave it at the start.
+      const newGraphWrap = this.graphWrapEl as HTMLElement | null;
+      if (!resetScroll && newGraphWrap) {
+        newGraphWrap.scrollLeft = prevScrollLeft;
+      }
+
+      this.renderedDate = moment().format("YYYY-MM-DD");
+
       if (this.plugin.settings.showLegend) this.renderLegend(container);
     } catch (e) {
       container.empty();
@@ -887,8 +1071,8 @@ export class ContributionsView extends ItemView {
       nav.createEl("span", { cls: "gh-nav-label", text: String(this.displayYear) });
       const next = nav.createEl("button", { cls: "gh-nav-btn", text: "›" });
       next.disabled = this.displayYear >= currentYear;
-      prev.onclick = async () => { this.displayYear--; await this.render(); };
-      next.onclick = async () => { if (this.displayYear < currentYear) { this.displayYear++; await this.render(); } };
+      prev.onclick = async () => { this.displayYear--; await this.render(true, true); };
+      next.onclick = async () => { if (this.displayYear < currentYear) { this.displayYear++; await this.render(true, true); } };
     } else {
       const prev = nav.createEl("button", { cls: "gh-nav-btn", text: "‹" });
       nav.createEl("span", { cls: "gh-nav-label", text: `${MONTHS_SHORT[this.displayMonth]} ${this.displayYear}` });
@@ -898,13 +1082,13 @@ export class ContributionsView extends ItemView {
       prev.onclick = async () => {
         if (this.displayMonth === 0) { this.displayMonth = 11; this.displayYear--; }
         else this.displayMonth--;
-        await this.render();
+        await this.render(true, true);
       };
       next.onclick = async () => {
         if (isLatest) return;
         if (this.displayMonth === 11) { this.displayMonth = 0; this.displayYear++; }
         else this.displayMonth++;
-        await this.render();
+        await this.render(true, true);
       };
     }
 
@@ -926,69 +1110,97 @@ export class ContributionsView extends ItemView {
     if (style === "compact") {
       // Single row, icon + number, no labels
       const row = container.createDiv({ cls: "gh-stats-compact" });
-      const items: [string, string, string][] = [
-        ["↑", String(total), "Total contributions"],
-        ["🔥", info.streaks.current + "d", "Current streak"],
-        ["⭐", info.streaks.longest + "d", "Best streak"],
-      ];
+
+      const totalChip = row.createEl("span", { cls: "gh-chip", title: "Total contributions" });
+      totalChip.createEl("span", { cls: "gh-chip-icon", text: "↑" });
+      this.statTotalEl = totalChip.createEl("span", { cls: "gh-chip-val", text: String(total) });
+
+      const streakChip = row.createEl("span", { cls: "gh-chip", title: "Current streak" });
+      streakChip.createEl("span", { cls: "gh-chip-icon", text: "🔥" });
+      this.statStreakEl = streakChip.createEl("span", { cls: "gh-chip-val", text: info.streaks.current + "d" });
+
+      const bestChip = row.createEl("span", { cls: "gh-chip", title: "Best streak" });
+      bestChip.createEl("span", { cls: "gh-chip-icon", text: "⭐" });
+      this.statBestEl = bestChip.createEl("span", { cls: "gh-chip-val", text: info.streaks.longest + "d" });
+
       if (showLocal && info.sinceCommit !== null) {
-        const sinceLabel = info.sinceCommit === 0 ? "committed today" : info.sinceCommit + "d ago";
-        items.push(["⏱", info.sinceCommit === 0 ? "today" : info.sinceCommit + "d", sinceLabel]);
+        const sinceVal = info.sinceCommit === 0 ? "today" : info.sinceCommit + "d";
+        const sinceTitle = info.sinceCommit === 0 ? "committed today" : info.sinceCommit + "d ago";
+        const sinceChip = row.createEl("span", { cls: "gh-chip", title: sinceTitle });
+        sinceChip.createEl("span", { cls: "gh-chip-icon", text: "⏱" });
+        this.statSinceEl = sinceChip.createEl("span", { cls: "gh-chip-val", text: sinceVal });
       }
-      if (info.recentRepo)
-        items.push(["📁", info.recentRepo, info.recentRepo]);
-      for (const [icon, val, title] of items) {
-        const chip = row.createEl("span", { cls: "gh-chip", title });
-        chip.createEl("span", { cls: "gh-chip-icon", text: icon });
-        chip.createEl("span", { cls: "gh-chip-val", text: val });
+
+      if (info.recentRepo) {
+        const repoChip = row.createEl("span", { cls: "gh-chip", title: info.recentRepo });
+        repoChip.createEl("span", { cls: "gh-chip-icon", text: "📁" });
+        this.statRepoEl = repoChip.createEl("span", { cls: "gh-chip-val", text: info.recentRepo });
       }
+
     } else if (style === "grid") {
       const stats = container.createDiv({ cls: "gh-stats gh-stats--grid" });
-      this.pill(stats, String(total), "contributions");
-      this.pill(stats, info.streaks.current + "d", "streak");
-      this.pill(stats, info.streaks.longest + "d", "best");
-      if (showLocal && info.sinceCommit !== null)
-        this.pill(stats, info.sinceCommit === 0 ? "today" : info.sinceCommit + "d ago", info.sinceCommit === 0 ? "committed" : "since commit");
+      this.statTotalEl = this.pillRef(stats, String(total), "contributions");
+      this.statStreakEl = this.pillRef(stats, info.streaks.current + "d", "streak");
+      this.statBestEl = this.pillRef(stats, info.streaks.longest + "d", "best");
+      if (showLocal && info.sinceCommit !== null) {
+        this.statSinceEl = this.pillRef(stats, info.sinceCommit === 0 ? "today" : info.sinceCommit + "d ago", info.sinceCommit === 0 ? "committed" : "since commit");
+      }
       if (info.recentRepo) {
         const maxLen = 16;
         const name = info.recentRepo.length > maxLen ? info.recentRepo.slice(0, maxLen-1) + "\u2026" : info.recentRepo;
         const pill = stats.createDiv({ cls: "gh-stat gh-stat--wide" });
         pill.title = info.recentRepo;
-        pill.createEl("span", { cls: "gh-stat-val", text: name });
+        this.statRepoEl = pill.createEl("span", { cls: "gh-stat-val", text: name });
         pill.createEl("span", { cls: "gh-stat-lbl", text: "recent repo" });
       }
     } else {
       // Default: tight vertical list with icons
       const list = container.createDiv({ cls: "gh-stats-list" });
-      const items: [string, string, string][] = [
-        ["↑", String(total), "contributions"],
-        ["🔥", info.streaks.current + "d", "streak"],
-        ["⭐", info.streaks.longest + "d", "best"],
-      ];
+
+      const totalRow = list.createDiv({ cls: "gh-stats-list-row" });
+      totalRow.createEl("span", { cls: "gh-stats-list-icon", text: "↑" });
+      this.statTotalEl = totalRow.createEl("span", { cls: "gh-stats-list-val", text: String(total) });
+      totalRow.createEl("span", { cls: "gh-stats-list-lbl", text: " contributions" });
+
+      const streakRow = list.createDiv({ cls: "gh-stats-list-row" });
+      streakRow.createEl("span", { cls: "gh-stats-list-icon", text: "🔥" });
+      this.statStreakEl = streakRow.createEl("span", { cls: "gh-stats-list-val", text: info.streaks.current + "d" });
+      streakRow.createEl("span", { cls: "gh-stats-list-lbl", text: " streak" });
+
+      const bestRow = list.createDiv({ cls: "gh-stats-list-row" });
+      bestRow.createEl("span", { cls: "gh-stats-list-icon", text: "⭐" });
+      this.statBestEl = bestRow.createEl("span", { cls: "gh-stats-list-val", text: info.streaks.longest + "d" });
+      bestRow.createEl("span", { cls: "gh-stats-list-lbl", text: " best" });
+
       if (showLocal && info.sinceCommit !== null) {
         const val = info.sinceCommit === 0 ? "today" : info.sinceCommit + "d ago";
         const lbl = info.sinceCommit === 0 ? "committed today" : "since commit";
-        items.push(["⏱", val, lbl]);
-      }
-      for (const [icon, val, label] of items) {
-        const row = list.createDiv({ cls: "gh-stats-list-row" });
-        row.createEl("span", { cls: "gh-stats-list-icon", text: icon });
-        row.createEl("span", { cls: "gh-stats-list-val", text: val });
-        row.createEl("span", { cls: "gh-stats-list-lbl", text: " " + label });
+        const sinceRow = list.createDiv({ cls: "gh-stats-list-row" });
+        sinceRow.createEl("span", { cls: "gh-stats-list-icon", text: "⏱" });
+        this.statSinceEl = sinceRow.createEl("span", { cls: "gh-stats-list-val", text: val });
+        sinceRow.createEl("span", { cls: "gh-stats-list-lbl", text: " " + lbl });
       }
     }
   }
 
-  private pill(parent: HTMLElement, value: string, label: string) {
+  // Creates a stat pill and returns a reference to the value element for
+  // in-place updates during quiet refresh.
+  private pillRef(parent: HTMLElement, value: string, label: string): HTMLElement {
     const p = parent.createDiv({ cls: "gh-stat" });
-    p.createEl("span", { cls: "gh-stat-val", text: value });
+    const valEl = p.createEl("span", { cls: "gh-stat-val", text: value });
     p.createEl("span", { cls: "gh-stat-lbl", text: label });
+    return valEl;
+  }
+
+  private pill(parent: HTMLElement, value: string, label: string) {
+    this.pillRef(parent, value, label);
   }
 
   private renderYearGrid(container: HTMLElement, weeks: DayData[][]) {
     const { cell, gap } = this.getCellSize();
     const graphWrap = container.createDiv({ cls: "gh-graph-wrap" });
     graphWrap.setCssStyles({ overflowX: "auto" });
+    this.graphWrapEl = graphWrap;
 
     // Month labels
     const monthRow = graphWrap.createDiv({ cls: "gh-month-row" });
@@ -1019,6 +1231,7 @@ export class ContributionsView extends ItemView {
   private renderMonthGrid(container: HTMLElement, weeks: DayData[][]) {
     const { cell, gap } = this.getCellSize();
     const graphWrap = container.createDiv({ cls: "gh-graph-wrap" });
+    this.graphWrapEl = graphWrap;
     const colTemplate = `repeat(7,${cell}px)`;
 
     // Day-of-week headers - use same grid columns as cells so they align
@@ -1592,6 +1805,33 @@ export default class GitHubContributionsPlugin extends Plugin {
     this.addRibbonIcon("github-contributions", "GitHub Contributions", () => { void this.activateView(); });
     this.addCommand({ id: "open-panel", name: "Open panel", callback: () => { void this.activateView(); } });
     this.injectPaletteStyles();
+
+    // Window focus trigger: refresh when the user returns to Obsidian from
+    // another application. Registered once on the plugin (not in onOpen) to
+    // avoid duplicate listeners if the view is reopened. Checks whether the
+    // contribution view is actually open before doing anything.
+    this.registerDomEvent(window, "focus", () => {
+      this.triggerAutoRefresh();
+    });
+
+    // 15-minute background timer: keeps data current even without interaction.
+    // Uses registerInterval so Obsidian handles cleanup automatically on unload.
+    // Also checks that the view is open before fetching - no point hitting the
+    // API when nobody can see the graph.
+    this.registerInterval(
+      window.setInterval(() => { this.triggerAutoRefresh(); }, AUTO_REFRESH_INTERVAL_MS)
+    );
+  }
+
+  // Finds the active contribution view (if any) and triggers an auto-refresh.
+  // Safe to call from any trigger - returns immediately if the view isn't open.
+  private triggerAutoRefresh() {
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
+    for (const leaf of leaves) {
+      if (leaf.view instanceof ContributionsView) {
+        void leaf.view.autoRefresh();
+      }
+    }
   }
 
   onunload() {

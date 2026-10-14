@@ -124,6 +124,10 @@ Clicking any contribution cell opens the matching daily note. If it doesn't exis
 - **Local Git mode** - only runs `git log` locally, reads commit metadata only, no data sent anywhere
 - No analytics, tracking, or telemetry
 
+## Feedback
+
+Found a bug or have a feature idea? Open an [issue](https://github.com/gearheaded/obsidian-github-contributions/issues) or start a [discussion](https://github.com/gearheaded/obsidian-github-contributions/discussions).
+
 ## Building from source
 
 ```bash
